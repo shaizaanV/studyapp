@@ -1,0 +1,117 @@
+/*
+ * Wall Method baseline.
+ *
+ * Aggressively stark: true black, the chrome faded almost out of existence,
+ * one static dot and one line of text. Nothing moves -- the point of the
+ * exercise is boredom, and animation is stimulation.
+ */
+
+#app {
+  position: relative;
+}
+
+body[data-phase="WALL"] #app {
+  background: #000;
+  border-color: #0c0e11;
+}
+
+/* The window controls stay reachable, but only surface when looked for. */
+body[data-phase="WALL"] .titlebar {
+  position: relative;
+  z-index: 1;
+  border-bottom-color: transparent;
+  opacity: 0.1;
+  transition: opacity 0.4s var(--ease);
+}
+
+body[data-phase="WALL"] .titlebar:hover,
+body[data-phase="WALL"] .titlebar:focus-within {
+  opacity: 1;
+}
+
+body[data-phase="WALL"] .brand-dot {
+  box-shadow: none;
+}
+
+/* Panels are closed for the wall's duration, so their buttons go too. */
+body[data-phase="WALL"] #btn-settings,
+body[data-phase="WALL"] #btn-analytics {
+  display: none;
+}
+
+/* Laid over the whole window so the dot sits at its true centre, not the
+   centre of the space below the titlebar. */
+.view.wall {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  padding: 0;
+}
+
+.wall-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  /* The mode's neon, dimmed: present enough to hold the eye, never bright. */
+  background: var(--accent);
+  opacity: 0.55;
+  box-shadow: 0 0 16px 2px var(--accent-soft);
+}
+
+.wall-prompt {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(50% + 46px);
+  max-width: 280px;
+  margin: 0 auto;
+  font-size: 12px;
+  line-height: 1.75;
+  letter-spacing: 0.01em;
+  text-align: center;
+  color: #5d646e;
+}
+
+.wall-footer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.wall-remaining {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: #4a515b;
+  font-variant-numeric: tabular-nums;
+}
+
+.wall-abandon {
+  padding: 4px 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-radius: var(--radius-pill);
+  opacity: 0;
+  transition: opacity 0.3s var(--ease), background 0.15s var(--ease),
+    color 0.15s var(--ease);
+}
+
+.view.wall:hover .wall-abandon,
+.wall-abandon:focus-visible {
+  opacity: 0.7;
+}
+
+.wall-abandon:hover {
+  opacity: 1;
+  color: var(--text);
+  background: var(--surface);
+}

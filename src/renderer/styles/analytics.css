@@ -1,0 +1,500 @@
+/*
+ * Analytics panel.
+ *
+ * Chart colour roles live here as tokens. The tier ramp is ordinal -- tiers
+ * have an order, so they take one hue stepping up in lightness -- and was
+ * validated against the card surface (#121418) with the dataviz ordinal
+ * checks: monotone lightness, visible step gaps, and a 4.02:1 near end.
+ */
+
+.analytics {
+  --viz-grid: #1a1e24;
+  --viz-axis: #2b313a;
+  --viz-series: var(--lime);
+  --viz-series-wash: rgba(198, 255, 61, 0.1);
+  --tier-1: #22855c;
+  --tier-2: #39c78b;
+  --tier-3: #4ef5a7;
+  gap: 12px;
+}
+
+.analytics-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+  margin-right: -4px;
+}
+
+.analytics-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.analytics-head .section-title {
+  margin: 0;
+}
+
+.analytics-since {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ----------------------------------------------------------- index tiles */
+
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.kpi {
+  min-width: 0;
+  padding: 12px 12px 11px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.kpi-label,
+.kpi-caption {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.kpi-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Standalone figures keep proportional digits; tabular-nums would make them
+   look loose at this size. */
+.kpi-value {
+  margin-top: 4px;
+  font-family: var(--font-display);
+  font-size: 23px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.kpi-unit {
+  margin-left: 2px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.kpi-caption {
+  margin-top: 3px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+/* ------------------------------------------------------------ chart cards */
+
+.viz-card {
+  flex: 0 0 auto;
+  padding: 14px 14px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.viz-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.viz-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.viz-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.viz-toggle {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  transition: color 0.15s var(--ease), background 0.15s var(--ease);
+}
+
+.viz-toggle:hover,
+.viz-toggle[aria-pressed="true"] {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.viz-body {
+  position: relative;
+}
+
+/* ------------------------------------------------------------------ marks */
+
+/* The global `svg { fill: none; stroke: currentColor }` rule is meant for
+   icons. Charts reset it, or every text label would be drawn outlined. */
+.viz-svg {
+  display: block;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  fill: none;
+  stroke: none;
+  outline: none;
+}
+
+.viz-svg:focus-visible {
+  outline: 1px solid var(--border-strong);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+.viz-svg text {
+  stroke: none;
+  font-family: var(--font);
+}
+
+.viz-tick {
+  font-size: 10px;
+  fill: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.viz-gridline,
+.viz-baseline {
+  stroke-width: 1;
+}
+
+.viz-gridline {
+  stroke: var(--viz-grid);
+}
+
+.viz-baseline {
+  stroke: var(--viz-axis);
+}
+
+.viz-area {
+  fill: var(--viz-series-wash);
+}
+
+.viz-line {
+  fill: none;
+  stroke: var(--viz-series);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* End and hover markers carry a 2px ring in the surface colour. */
+.viz-dot {
+  fill: var(--viz-series);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.viz-crosshair {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+}
+
+.viz-hit {
+  fill: transparent;
+}
+
+.viz-hit-x {
+  cursor: crosshair;
+}
+
+.viz-svg .s-t1 {
+  fill: var(--tier-1);
+}
+
+.viz-svg .s-t2 {
+  fill: var(--tier-2);
+}
+
+.viz-svg .s-t3 {
+  fill: var(--tier-3);
+}
+
+.viz-row {
+  transition: opacity 0.18s var(--ease);
+}
+
+/* The hovered row lifts by dimming the others. */
+.viz-svg.has-active .viz-row:not(.active) {
+  opacity: 0.38;
+}
+
+.viz-row-label {
+  font-size: 11px;
+  fill: var(--text-dim);
+}
+
+.viz-value {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.viz-value.muted {
+  font-weight: 400;
+  fill: var(--text-muted);
+}
+
+/* ---------------------------------------------------------------- motion */
+
+/* Marks grow out of their baseline on first open: a CSS transition on a
+   transform, nothing scripted per frame. */
+.viz-reveal {
+  transform-box: fill-box;
+  transition: transform 0.7s var(--ease);
+}
+
+.viz-reveal-y {
+  transform-origin: 50% 100%;
+}
+
+.viz-reveal-x {
+  transform-origin: 0% 50%;
+}
+
+.viz-reveal-y.pre {
+  transform: scaleY(0);
+}
+
+.viz-reveal-x.pre {
+  transform: scaleX(0);
+}
+
+.viz-fade {
+  transition: opacity 0.35s var(--ease) 0.55s;
+}
+
+.viz-fade.pre {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .viz-reveal,
+  .viz-fade,
+  .viz-row {
+    transition: none;
+  }
+}
+
+/* --------------------------------------------------------------- tooltip */
+
+.viz-tip {
+  position: absolute;
+  z-index: 5;
+  min-width: 96px;
+  padding: 8px 10px;
+  pointer-events: none;
+  background: #0b0d10;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.viz-tip-title {
+  margin-bottom: 4px;
+  font-size: 10.5px;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.viz-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.viz-tip-row + .viz-tip-row {
+  margin-top: 2px;
+}
+
+/* Values lead: the number is the strong element, the series name follows. */
+.viz-tip-value {
+  min-width: 44px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.viz-tip-label {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* Tooltip rows are keyed with a short stroke, not a filled box. */
+.viz-key {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.viz-key.series {
+  background: var(--viz-series);
+}
+
+.viz-key.s-t1,
+.legend-swatch.s-t1 {
+  background: var(--tier-1);
+}
+
+.viz-key.s-t2,
+.legend-swatch.s-t2 {
+  background: var(--tier-2);
+}
+
+.viz-key.s-t3,
+.legend-swatch.s-t3 {
+  background: var(--tier-3);
+}
+
+/* ---------------------------------------------------------------- legend */
+
+/* One column per tier, so the three read as a set instead of wrapping. */
+.viz-legend {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.legend-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.legend-key {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.legend-figures {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding-left: 16px;
+}
+
+/* The swatch mirrors the mark it keys: a rectangle, for bars. */
+.legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.legend-name {
+  color: var(--text-dim);
+}
+
+.legend-range {
+  color: var(--text-muted);
+}
+
+.legend-value {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.legend-share {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ----------------------------------------------------------- empty state */
+
+.viz-empty {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.viz-empty-area {
+  inset: 0 10px 22px 46px;
+}
+
+.viz-empty-bars {
+  inset: 0 60px 0 50px;
+}
+
+/* ------------------------------------------------------------ table twin */
+
+/* The table grows with its rows. The panel is the only scroll container, so
+   there is never a scroll region nested inside a card. */
+.viz-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.viz-table th {
+  position: sticky;
+  top: 0;
+  padding: 0 6px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-align: right;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.viz-table td {
+  padding: 5px 6px;
+  text-align: right;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+
+.viz-table th:first-child,
+.viz-table td:first-child {
+  padding-left: 0;
+  text-align: left;
+}
+
+.viz-table tr:last-child td {
+  border-bottom: none;
+}

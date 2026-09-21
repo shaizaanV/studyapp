@@ -1,0 +1,63 @@
+# electron-builder configuration for Flowcus.
+#
+# appId MUST stay identical to APP_ID in src/main/constants.js. Windows pairs
+# toast notifications with the AppUserModelID stamped onto the Start Menu
+# shortcut that NSIS creates below; if the two drift apart every toast is
+# dropped silently.
+appId: com.flowcus.app
+productName: Flowcus
+copyright: Copyright (c) 2026
+
+directories:
+  output: dist
+  buildResources: build
+
+# Whitelist rather than blacklist, so nothing stray ends up in the package.
+files:
+  - package.json
+  - src/**/*
+
+asar: true
+compression: maximum
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+        - ia32
+  icon: build/icon.ico
+  artifactName: ${productName} Setup ${version} ${arch}.${ext}
+
+linux:
+  target:
+    - deb
+    - rpm
+  category: Utility
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+mac:
+  target:
+    - dmg
+    - zip
+  artifactName: ${productName}-${version}.${ext}
+
+# Public GitHub Releases feed baked into app-update.yml at build time.
+# The repo is public, so this needs no token embedded in the shipped binary.
+publish:
+  - provider: github
+    owner: shaizaanV
+    repo: studyapp
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  # This shortcut is what registers the AppUserModelID with Windows. Without
+  # it, notifications from the installed app never appear.
+  createStartMenuShortcut: true
+  createDesktopShortcut: true
+  shortcutName: Flowcus
+  # Settings and session history live in userData; keep them across upgrades.
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true

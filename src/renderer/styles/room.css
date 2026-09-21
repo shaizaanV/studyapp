@@ -1,0 +1,360 @@
+/*
+ * Study room: the panel, the title tag, and the admission dialog.
+ * Reuses the shared tokens; the accent follows the timer phase like everything else.
+ */
+
+/* ------------------------------------------------------------ title bar tag */
+
+.room-tag {
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-pill);
+}
+
+.win-btn {
+  position: relative;
+}
+
+/* A join request is waiting and the panel is closed. */
+.win-btn.attention::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 8px var(--red);
+}
+
+/* A room owns the timer's mode, so the mode switch goes away while in one. */
+body[data-room="host"] .mode-switch,
+body[data-room="follower"] .mode-switch {
+  display: none;
+}
+
+/* --------------------------------------------------------------- the panel */
+
+.room {
+  gap: 12px;
+}
+
+.room-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+  margin-right: -4px;
+}
+
+.room-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.room-lede,
+.room-help {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.room-help {
+  font-size: 11.5px;
+}
+
+.room-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.room-field .field-label {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.room-row {
+  display: flex;
+  gap: 8px;
+}
+
+.room-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.room-step {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+textarea.room-code {
+  width: 100%;
+  resize: none;
+  padding: 8px 10px;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--text-dim);
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  outline: none;
+  user-select: text;
+  word-break: break-all;
+}
+
+textarea.room-code:focus {
+  border-color: var(--accent-line);
+}
+
+.room-note {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.room-note[data-kind="error"] {
+  color: var(--red);
+}
+
+.room-details {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.room-details > summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.room-details[open] > summary {
+  margin-bottom: 10px;
+}
+
+/* ---------------------------------------------------------------- the room */
+
+.room-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.room-mnemonic {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+
+.room-sub {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.room-members {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.room-member {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  font-size: 12.5px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.member-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--mint);
+}
+
+.room-member.offline .member-dot {
+  background: var(--text-muted);
+}
+
+.member-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member-tag {
+  padding: 1px 7px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--surface-3);
+  border-radius: var(--radius-pill);
+}
+
+.member-tag.host {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.room-waiting {
+  font-size: 11.5px;
+  color: var(--amber);
+}
+
+/* -------------------------------------------------------------------- chat */
+
+.room-chat-title {
+  margin-top: 4px;
+}
+
+.chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 90px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  user-select: text;
+}
+
+.chat-line {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.chat-name {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.chat-line.self .chat-name {
+  color: var(--accent);
+}
+
+.chat-compose {
+  display: flex;
+  gap: 8px;
+}
+
+.chat-input {
+  flex: 1 1 auto;
+  width: auto;
+}
+
+.chat-send {
+  flex: 0 0 auto;
+  padding: 8px 16px;
+}
+
+.room-leave {
+  margin-top: 4px;
+}
+
+/* --------------------------------------------------------- admission dialog */
+
+.admit-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(5, 6, 8, 0.78);
+}
+
+.admit-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 380px;
+  padding: 18px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lift);
+}
+
+.admit-name {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.admit-by {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.admit-fingerprint {
+  padding: 10px 12px;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-align: center;
+  color: var(--accent);
+  background: var(--bg);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-sm);
+  user-select: text;
+}
+
+.admit-timer {
+  font-size: 10.5px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+/* The mini widget has no room for any of this. */
+body.mini .admit-backdrop {
+  display: none;
+}

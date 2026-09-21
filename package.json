@@ -1,0 +1,29 @@
+{
+  "name": "flowcus",
+  "version": "4.1.0",
+  "description": "Premium dark-mode dual-timer focus app with the Wall Method, the Flowcus 3.0 tier engine and a native analytics dashboard",
+  "main": "src/main/main.js",
+  "author": "Flowcus",
+  "private": false,
+  "license": "MIT",
+  "scripts": {
+    "icon": "node tools/make-icon.js",
+    "start": "node tools/launch.js",
+    "test": "node --test \"test/*.test.js\"",
+    "prebuild": "node tools/make-icon.js",
+    "build": "electron-builder --win",
+    "build-win": "electron-builder --windows nsis:ia32",
+    "build-linux-deb": "electron-builder --linux deb",
+    "build-linux-rpm": "electron-builder --linux rpm",
+    "build-mac": "electron-builder --mac dmg zip",
+    "smoke": "node tools/smoke.js",
+    "room:e2e": "node tools/room-e2e.js"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  },
+  "devDependencies": {
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3"
+  }
+}

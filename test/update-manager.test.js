@@ -73,3 +73,30 @@ test('when no newer build exists, a forced update says so instead of hanging', a
   await new Promise((resolve) => setImmediate(resolve));
   assert.match(dialogs.at(-1).message, /No newer build/);
 });
+
+test('the Store build never loads electron-updater, polls, or self-installs', async () => {
+  const opened = [];
+  const dialogs = [];
+  const manager = createUpdateManager({
+    store: true,
+    dialog: { showMessageBox: async (_w, options) => { dialogs.push(options); return { response: 0 }; } },
+    shell: { openExternal: async (url) => opened.push(url) },
+  });
+  manager.start();
+  manager.stop();
+  assert.equal(await manager.requireUpdate(), 'store');
+  await manager.promptUnsupported();
+  assert.match(dialogs[0].detail, /Microsoft Store/);
+  assert.deepEqual(opened, ['ms-windows-store://downloadsandupdates']);
+});
+
+test('declining the Store prompt opens nothing', async () => {
+  const opened = [];
+  const manager = createUpdateManager({
+    store: true,
+    dialog: { showMessageBox: async () => ({ response: 1 }) },
+    shell: { openExternal: async (url) => opened.push(url) },
+  });
+  await manager.promptUnsupported();
+  assert.deepEqual(opened, []);
+});

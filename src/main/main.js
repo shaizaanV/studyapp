@@ -29,7 +29,9 @@ const notifier = require('./notifier');
  * on the Start Menu shortcut the installer writes; a mismatch means every
  * toast is dropped silently, with no error anywhere.
  */
-app.setAppUserModelId(APP_ID);
+// Inside the Microsoft Store package Windows derives the AppUserModelID from the
+// package identity, so setting our own would detach toasts from the app.
+if (!process.windowsStore) app.setAppUserModelId(APP_ID);
 
 // Lets the development screenshot harness run against a throwaway profile
 // instead of the real settings and session history.
@@ -225,7 +227,8 @@ app.whenReady().then(() => {
     pendingDeepLink = '';
     return code;
   });
-  if (app.isPackaged) app.setAsDefaultProtocolClient('flowcus');
+  // The Store package registers flowcus:// in its manifest; the NSIS install does it here.
+  if (app.isPackaged && !process.windowsStore) app.setAsDefaultProtocolClient('flowcus');
   const launchLink = process.argv.find((arg) => /^flowcus:\/\//i.test(arg));
   if (launchLink) handleDeepLink(launchLink);
 

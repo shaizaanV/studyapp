@@ -128,6 +128,10 @@ Linux and macOS builds currently fall back to Electron's default icon —
 `tools/make-icon.js` only generates the Windows `.ico`; a `.png`/`.icns` pass
 still needs adding for those platforms to ship a proper icon.
 
+## Microsoft Store
+
+The same workflow also builds a Microsoft Store package (`.appx`, which the Store re-signs, so Windows never blocks it) from the same version. The Store build does not use `electron-updater`; the Store delivers its updates. Setup and submission steps: [docs/STORE.md](docs/STORE.md). Privacy policy: [PRIVACY.md](PRIVACY.md).
+
 ## License
 
 MIT

@@ -34,6 +34,19 @@ win:
   icon: build/icon.ico
   artifactName: ${productName}-Setup-${version}-${arch}.${ext}
 
+# Microsoft Store package (`npx electron-builder --win appx`). The Store re-signs
+# it, so it ships unsigned. identityName, publisher and publisherDisplayName
+# come from Partner Center (App identity page) and are deliberately NOT set
+# here: the build passes them as -c.appx.* flags (see the release workflow and
+# docs/STORE.md), so a package with placeholder values is never built by accident.
+appx:
+  applicationId: Flowcus
+  displayName: Flowcus
+  languages:
+    - en-US
+  backgroundColor: "#111418"
+  artifactName: ${productName}-Store-${version}-${arch}.${ext}
+
 linux:
   target:
     - deb

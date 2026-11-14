@@ -1,7 +1,8 @@
 'use strict';
 
 /**
- * Generates build/icon.ico from scratch using only Node's standard library.
+ * Generates build/icon.ico (and the Microsoft Store tile images in
+ * build/appx/) from scratch using only Node's standard library.
  *
  * Keeping the icon as code rather than a checked-in binary means the repo
  * carries no opaque blob, the mark stays in sync with the app's accent colour,
@@ -61,20 +62,24 @@ function pngChunk(type, data) {
 
 /** 8-bit RGBA PNG, one filter-none scanline per row. */
 function encodePng(size, rgba) {
+  return encodePngRect(size, size, rgba);
+}
+
+function encodePngRect(width, height, rgba) {
   const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
   const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(size, 0);
-  ihdr.writeUInt32BE(size, 4);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
   ihdr[8] = 8; // bit depth
   ihdr[9] = 6; // colour type: truecolour with alpha
   ihdr[10] = 0; // deflate
   ihdr[11] = 0; // adaptive filtering
   ihdr[12] = 0; // no interlace
 
-  const stride = size * 4;
-  const raw = Buffer.alloc((stride + 1) * size);
-  for (let y = 0; y < size; y++) {
+  const stride = width * 4;
+  const raw = Buffer.alloc((stride + 1) * height);
+  for (let y = 0; y < height; y++) {
     raw[y * (stride + 1)] = 0; // filter type 0
     rgba.copy(raw, y * (stride + 1) + 1, y * stride, (y + 1) * stride);
   }
@@ -205,6 +210,46 @@ function main() {
     `[flowcus] wrote ${path.relative(path.join(__dirname, '..'), outputPath)} ` +
       `(${SIZES.join(', ')} px, ${(ico.length / 1024).toFixed(1)} KB)`
   );
+
+  writeStoreAssets(outputDir);
+}
+
+/** A wide tile: the square mark centred on the background colour. */
+function drawWide(width, height) {
+  const rgba = Buffer.alloc(width * height * 4);
+  for (let i = 0; i < width * height; i++) {
+    rgba[i * 4] = BG[0];
+    rgba[i * 4 + 1] = BG[1];
+    rgba[i * 4 + 2] = BG[2];
+    rgba[i * 4 + 3] = 255;
+  }
+  const mark = drawIcon(height);
+  const left = Math.floor((width - height) / 2);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < height; x++) {
+      const from = (y * height + x) * 4;
+      const to = (y * width + left + x) * 4;
+      const alpha = mark[from + 3] / 255;
+      for (let c = 0; c < 3; c++) rgba[to + c] = Math.round(mark[from + c] * alpha + rgba[to + c] * (1 - alpha));
+    }
+  }
+  return rgba;
+}
+
+/**
+ * The images the Microsoft Store package needs. electron-builder's appx target
+ * reads these exact names from build/appx/ and otherwise falls back to its own
+ * sample artwork.
+ */
+function writeStoreAssets(outputDir) {
+  const dir = path.join(outputDir, 'appx');
+  fs.mkdirSync(dir, { recursive: true });
+  const square = { 'StoreLogo.png': 50, 'Square44x44Logo.png': 44, 'Square150x150Logo.png': 150 };
+  for (const [name, size] of Object.entries(square)) {
+    fs.writeFileSync(path.join(dir, name), encodePng(size, drawIcon(size)));
+  }
+  fs.writeFileSync(path.join(dir, 'Wide310x150Logo.png'), encodePngRect(310, 150, drawWide(310, 150)));
+  console.log(`[flowcus] wrote ${Object.keys(square).length + 1} Store images in build/appx/`);
 }
 
 main();

@@ -14,16 +14,26 @@ const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
  * build is too old: it skips the "later" option, downloads if needed, and
  * installs as soon as the download lands.
  *
- * `updater` and `dialog` are injectable so the flow can be tested without
- * Electron.
+ * The Microsoft Store build never self-updates (the Store delivers its updates),
+ * so there `electron-updater` is not even loaded: start/stop do nothing and the
+ * "update required" prompt points at the Store instead.
+ *
+ * `updater`, `dialog` and `store` are injectable so the flow can be tested
+ * without Electron.
  */
+const STORE_UPDATES_URI = 'ms-windows-store://downloadsandupdates';
+
 function createUpdateManager({
   getParentWindow = () => null,
   log = console,
-  updater = require('electron-updater').autoUpdater,
+  store = Boolean(process.windowsStore),
+  updater = store ? null : require('electron-updater').autoUpdater,
   dialog = require('electron').dialog,
+  shell = require('electron').shell,
   isPackaged = () => require('electron').app.isPackaged,
 } = {}) {
+  if (store) return createStoreUpdateManager({ getParentWindow, dialog, shell });
+
   updater.logger = log;
   updater.autoDownload = true;
 
@@ -140,4 +150,36 @@ function createUpdateManager({
   return { start, stop, requireUpdate, promptUnsupported };
 }
 
-module.exports = { createUpdateManager, CHECK_INTERVAL_MS };
+/** The Store build: nothing to poll, and "update required" opens the Store's updates page. */
+function createStoreUpdateManager({ getParentWindow, dialog, shell }) {
+  let prompting = false;
+
+  async function promptUnsupported() {
+    if (prompting) return;
+    prompting = true;
+    try {
+      const { response } = await dialog.showMessageBox(getParentWindow(), {
+        type: 'warning',
+        title: 'Update required',
+        message: 'Your version is not supported.',
+        detail: 'Study rooms need the latest version of Flowcus. Update it from the Microsoft Store.',
+        buttons: ['Open Microsoft Store', 'Not Now'],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true,
+      });
+      if (response === 0) await shell.openExternal(STORE_UPDATES_URI);
+    } finally {
+      prompting = false;
+    }
+  }
+
+  return {
+    start() {},
+    stop() {},
+    requireUpdate: async () => 'store',
+    promptUnsupported,
+  };
+}
+
+module.exports = { createUpdateManager, CHECK_INTERVAL_MS, STORE_UPDATES_URI };

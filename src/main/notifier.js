@@ -54,7 +54,10 @@ function showToastViaPowerShell({ title, body, scenario }) {
       '$doc = New-Object Windows.Data.Xml.Dom.XmlDocument',
       `$doc.LoadXml([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("${Buffer.from(xml, 'utf8').toString('base64')}")))`,
       '$toast = New-Object Windows.UI.Notifications.ToastNotification $doc',
-      `[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("${APP_ID}").Show($toast)`,
+      // A Store package has no Start Menu shortcut for our own id; with no id Windows uses the package's.
+      process.windowsStore
+        ? '[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier().Show($toast)'
+        : `[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("${APP_ID}").Show($toast)`,
     ].join('\n');
 
     const encoded = Buffer.from(script, 'utf16le').toString('base64');

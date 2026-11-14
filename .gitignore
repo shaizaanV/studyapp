@@ -5,3 +5,5 @@ build/icon.ico
 .smoke/
 .env
 CLAUDE.md
+build/appx/
+dist-store/

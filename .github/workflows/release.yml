@@ -3,6 +3,8 @@ name: Release
 on:
   push:
     branches: [main]
+  # Run by hand (Actions tab) to build the Store package for the current version.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -50,6 +52,11 @@ jobs:
         if: steps.exists.outputs.released == 'false'
         run: npm test
 
+      # build/icon.ico and the Store tile images are generated, not committed.
+      - name: Generate icons
+        if: steps.exists.outputs.released == 'false'
+        run: node tools/make-icon.js
+
       - name: Build installer
         if: steps.exists.outputs.released == 'false'
         run: npx electron-builder --win --publish never
@@ -72,3 +79,66 @@ jobs:
           gh release create "$tag" --title "$tag" --target "$GITHUB_SHA" --generate-notes
           gh release upload "$tag" "dist/Flowcus-Setup-${{ steps.ver.outputs.version }}-x64.exe" "dist/Flowcus-Setup-${{ steps.ver.outputs.version }}-x64.exe.blockmap"
           gh release upload "$tag" dist/latest.yml
+
+  # Microsoft Store package. A separate job so it can also be run on demand
+  # (workflow_dispatch) for a version that is already released, e.g. right after
+  # the Partner Center values are added. It runs on every push too, so both
+  # channels always carry the same version. Skipped until the three Partner
+  # Center values exist as repository variables (Settings > Secrets and
+  # variables > Actions > Variables); see docs/STORE.md. Separate output
+  # directory, so the GitHub update feed (latest.yml) is never touched. The
+  # Store re-signs the package; upload the .appx to Partner Center by hand.
+  store:
+    needs: release
+    runs-on: windows-latest
+    if: vars.STORE_IDENTITY_NAME != ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Read version
+        id: ver
+        shell: bash
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Install
+        run: npm ci
+
+      - name: Generate icons
+        run: node tools/make-icon.js
+
+      - name: Build Microsoft Store package
+        shell: bash
+        env:
+          STORE_IDENTITY_NAME: ${{ vars.STORE_IDENTITY_NAME }}
+          STORE_PUBLISHER: ${{ vars.STORE_PUBLISHER }}
+          STORE_PUBLISHER_DISPLAY_NAME: ${{ vars.STORE_PUBLISHER_DISPLAY_NAME }}
+        run: |
+          npx electron-builder --win appx --publish never \
+            -c.directories.output=dist-store \
+            "-c.appx.identityName=$STORE_IDENTITY_NAME" \
+            "-c.appx.publisher=$STORE_PUBLISHER" \
+            "-c.appx.publisherDisplayName=$STORE_PUBLISHER_DISPLAY_NAME"
+          ls -la dist-store
+
+      - name: Keep Store package as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowcus-store-package
+          path: dist-store/*.appx
+
+      - name: Attach Store package to the GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="v${{ steps.ver.outputs.version }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "dist-store/Flowcus-Store-${{ steps.ver.outputs.version }}-x64.appx" --clobber
+          else
+            echo "No release $tag to attach to; the artifact above has the package."
+          fi

@@ -32,7 +32,7 @@ win:
       arch:
         - x64
   icon: build/icon.ico
-  artifactName: ${productName} Setup ${version} ${arch}.${ext}
+  artifactName: ${productName}-Setup-${version}-${arch}.${ext}
 
 linux:
   target:

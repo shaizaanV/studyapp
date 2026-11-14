@@ -23,15 +23,22 @@ jobs:
         shell: bash
         run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
+      # A version counts as released only when its latest.yml is attached: that
+      # file is what installed apps read to find the update. A release without
+      # it is a failed earlier attempt, so it is deleted and rebuilt.
       - name: Check whether this version is already released
         id: exists
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if gh release view "v${{ steps.ver.outputs.version }}" >/dev/null 2>&1; then
+          tag="v${{ steps.ver.outputs.version }}"
+          if gh release view "$tag" --json assets --jq '.assets[].name' 2>/dev/null | grep -qx 'latest.yml'; then
             echo "released=true" >> "$GITHUB_OUTPUT"
           else
+            if gh release view "$tag" >/dev/null 2>&1; then
+              gh release delete "$tag" --cleanup-tag --yes
+            fi
             echo "released=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -43,8 +50,25 @@ jobs:
         if: steps.exists.outputs.released == 'false'
         run: npm test
 
-      - name: Build and publish
+      - name: Build installer
         if: steps.exists.outputs.released == 'false'
+        run: npx electron-builder --win --publish never
+
+      - name: Show build output
+        if: steps.exists.outputs.released == 'false'
+        shell: bash
+        run: ls -la dist
+
+      # Upload with the GitHub CLI rather than electron-builder's publisher.
+      # The installer goes first and latest.yml last, so a release that has
+      # latest.yml always has its installer too.
+      - name: Publish release
+        if: steps.exists.outputs.released == 'false'
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --win --publish always
+        run: |
+          tag="v${{ steps.ver.outputs.version }}"
+          gh release create "$tag" --title "$tag" --target "$GITHUB_SHA" --generate-notes
+          gh release upload "$tag" "dist/Flowcus-Setup-${{ steps.ver.outputs.version }}-x64.exe" "dist/Flowcus-Setup-${{ steps.ver.outputs.version }}-x64.exe.blockmap"
+          gh release upload "$tag" dist/latest.yml

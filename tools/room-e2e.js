@@ -7,15 +7,17 @@
  *
  * Launches two separate instances (own profiles, own keys), drives their real
  * UI over the Chrome DevTools Protocol, and walks the whole flow: create a
- * room, copy-paste invite and reply, host approval, timer sync, chat both ways,
- * then closes the host's window and waits for the other peer to take over.
- * Everything crosses real WebRTC data channels and the real IPC bridge.
+ * room, join by typing its short code (through a local relay from
+ * tools/local-relay.js), timer sync, chat both ways, rotate the code, kick and
+ * rejoin, then closes the host's window and waits for the other peer to take
+ * over. Everything crosses real WebRTC data channels and the real IPC bridge.
  */
 
 const fs = require('node:fs');
 const path = require('node:path');
 
 const { launch } = require('./launch');
+const { startLocalRelay } = require('./local-relay');
 
 const outputDir = path.join(__dirname, '..', '.smoke');
 const PORTS = { a: 9341, b: 9342 };
@@ -96,12 +98,15 @@ async function waitFor(label, peer, expression, timeoutMs = 20000) {
 const click = (text, scope = '#view-room') =>
   `[...document.querySelectorAll('${scope} button')].find((b) => b.textContent.trim() === ${JSON.stringify(text)}).click()`;
 
+let relayUrl = '';
+
 function start(name) {
   const userData = path.join(outputDir, `e2e-${name}`);
   fs.rmSync(userData, { recursive: true, force: true });
   const child = launch([`--remote-debugging-port=${PORTS[name]}`], {
     FLOWCUS_MULTI_INSTANCE: '1',
     FLOWCUS_USER_DATA: userData,
+    FLOWCUS_RELAY_URL: relayUrl,
     __stdio: ['ignore', 'pipe', 'pipe'],
   });
   child.stdout.on('data', () => {});
@@ -114,8 +119,13 @@ const log = (message) => console.log(`[e2e] ${++step}. ${message}`);
 
 async function main() {
   fs.mkdirSync(outputDir, { recursive: true });
+  const relay = await startLocalRelay({ port: 0 });
+  relayUrl = relay.url;
   const children = [start('a'), start('b')];
-  const cleanup = () => children.forEach((child) => child.kill());
+  const cleanup = () => {
+    children.forEach((child) => child.kill());
+    relay.close();
+  };
   process.on('exit', cleanup);
 
   try {
@@ -123,40 +133,31 @@ async function main() {
     const b = await connect(PORTS.b);
     await sleep(1500);
 
-    log('host creates a room');
+    log('host creates a room and gets a short code');
     await a.eval(`document.getElementById('btn-room').click()`);
     await a.eval(`document.getElementById('room-name').value = 'Alice'`);
-    await a.eval(click('Create a room'));
+    await a.eval(`document.getElementById('room-create').click()`);
     const mnemonic = await waitFor('room tag on host', a, `!document.getElementById('room-tag').hidden && document.getElementById('room-tag').textContent`);
+    const code = await waitFor('room code', a, `/^[A-Z2-9]{3}-[A-Z2-9]{3}$/.test(document.getElementById('room-code').textContent) && document.getElementById('room-code').textContent`);
+    console.log(`       code: ${code}`);
 
-    log('joiner makes an invite');
+    log('joiner types the code and is in the room with no copy-paste');
     await b.eval(`document.getElementById('btn-room').click()`);
     await b.eval(`document.getElementById('room-name').value = 'Bob'`);
-    await b.eval(click('Join a room'));
-    await b.eval(click('Copy Invite'));
-    const invite = await waitFor('invite text', b, `(() => { const v = document.querySelectorAll('#view-room .room-flow textarea')[0].value; return v.startsWith('ROOM_') && v; })()`);
-
-    log('host turns the invite into a reply');
-    await a.eval(`document.querySelector('#view-room .room-details').open = true`);
-    await a.eval(`document.querySelectorAll('#view-room .room-details textarea')[0].value = ${JSON.stringify(invite)}`);
-    await a.eval(click('Create Reply'));
-    const reply = await waitFor('reply text', a, `(() => { const v = document.querySelectorAll('#view-room .room-details textarea')[1].value; return v.startsWith('ROOM_') && v; })()`);
-
-    log('joiner pastes the reply; the channel opens and the host is asked');
-    await b.eval(`document.querySelectorAll('#view-room .room-flow textarea')[1].value = ${JSON.stringify(reply)}`);
-    await b.eval(click('Connect'));
-    await waitFor('admission dialog', a, `!document.getElementById('room-admit').hidden`, 30000);
-    const shown = await a.eval(`document.querySelector('#room-admit .admit-name').textContent + '|' + document.querySelector('#room-admit .admit-fingerprint').textContent`);
-    if (!shown.startsWith('Bob|') || !/^([A-Z]{4}-){5}[A-Z]{4}$/.test(shown.slice(4))) throw new Error(`bad admit dialog: ${shown}`);
-
-    log('host admits; both sides show the same two-person room');
-    await a.eval(click('Admit', '#room-admit'));
-    await waitFor('joiner in room', b, `!document.getElementById('room-tag').hidden && document.getElementById('room-tag').textContent`);
+    await b.eval(`(() => { const input = document.getElementById('room-code-input'); input.value = ${JSON.stringify(code.toLowerCase())}; input.dispatchEvent(new Event('input')); document.getElementById('room-join').click(); })()`);
+    await waitFor('joiner in room', b, `!document.getElementById('room-tag').hidden && document.getElementById('room-tag').textContent`, 40000);
     const joinerTag = await b.eval(`document.getElementById('room-tag').textContent`);
     if (joinerTag !== mnemonic) throw new Error(`room label differs: ${mnemonic} vs ${joinerTag}`);
     for (const peer of [a, b]) {
       await waitFor('two members', peer, `document.querySelectorAll('#view-room .room-member').length === 2`);
     }
+    const hostSawModal = await a.eval(`!document.getElementById('room-admit').hidden`);
+    if (hostSawModal) throw new Error('open join should not ask the host');
+    await waitFor('joiner shows the same code', b, `document.getElementById('room-code').textContent === ${JSON.stringify(code)}`);
+
+    log('the QR code renders in the real page (CSP allows the shared script and SVG)');
+    await a.eval(`document.getElementById('room-qr-toggle').click()`);
+    await waitFor('qr svg', a, `(() => { const p = document.querySelector('#room-qr svg path'); return p && p.getAttribute('d').length > 100; })()`);
 
     log('host starts the timer; the joiner follows and cannot control it');
     await a.eval(`window.flowcus.action('start')`);
@@ -175,6 +176,19 @@ async function main() {
     log('the host pauses; the joiner sees it');
     await a.eval(`window.flowcus.action('pause')`);
     await waitFor('joiner paused', b, `document.body.dataset.phase === 'FOCUS_PAUSED'`);
+
+    log('the host rotates the code; every member sees the new one');
+    await a.eval(`document.getElementById('room-rotate').click()`);
+    const fresh = await waitFor('new code at host', a, `document.getElementById('room-code').textContent !== ${JSON.stringify(code)} && document.getElementById('room-code').textContent`);
+    await waitFor('new code at joiner', b, `document.getElementById('room-code').textContent === ${JSON.stringify(fresh)}`);
+
+    log('the host kicks the joiner, who sees why and can rejoin with the new code');
+    await a.eval(`(() => { const kick = document.querySelector('#view-room [data-action="kick"]'); kick.click(); kick.click(); })()`);
+    await waitFor('removal notice', b, `!document.getElementById('room-notice').hidden && /removed/.test(document.getElementById('room-notice').textContent)`);
+    await waitFor('host back to one member', a, `document.querySelectorAll('#view-room .room-member').length === 1`);
+    await b.eval(`(() => { const input = document.getElementById('room-code-input'); input.value = ${JSON.stringify(fresh)}; input.dispatchEvent(new Event('input')); document.getElementById('room-join').click(); })()`);
+    await waitFor('joiner back in room', b, `!document.getElementById('room-tag').hidden && document.querySelectorAll('#view-room .room-member').length === 2`, 40000)
+      .catch(async (err) => { throw new Error(`${err.message} | join note: ${await b.eval(`document.getElementById('room-join-note').textContent`)} | idle error: ${await b.eval(`document.querySelector('#view-room .room-note').textContent`)}`); });
 
     log('host closes its window; the joiner takes over as host');
     await a.eval(`window.flowcus.window('close')`).catch(() => {}); // the page goes away mid-call

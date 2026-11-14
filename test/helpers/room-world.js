@@ -17,7 +17,7 @@ const memorySecret = () => {
  * between channels and completing relayed handshakes -- so a test can drive
  * real admission, relay, timer sync and host handover across several peers.
  */
-function createWorld() {
+function createWorld({ askFirst = false } = {}) {
   let now = 1_800_000_000_000;
   const clock = () => now;
   const nodes = new Map();
@@ -66,6 +66,15 @@ function createWorld() {
       }
     });
 
+    if (askFirst) {
+      const create = svc.createRoom.bind(svc);
+      svc.createRoom = (roomName) => {
+        create(roomName);
+        svc.moderate('policy', undefined, 'ask');
+        return svc.view();
+      };
+    }
+
     nodes.set(name, node);
     return node;
   }
@@ -87,7 +96,10 @@ function createWorld() {
     const invite = joiner.svc.makeInvite(name, `sdp-offer:${joiner.name}`);
     const opened = introducer.svc.openInvite(invite.invite);
     if (!opened.ok) return { ok: false, error: opened.error };
-    const reply = introducer.svc.makeReply(`sdp-answer:${introducer.name}`);
+    const reply = introducer.svc.makeReply(`sdp-answer:${introducer.name}`, {
+      to: joiner.key,
+      offerSdp: `sdp-offer:${joiner.name}`,
+    });
     const accepted = joiner.svc.openReply(reply.reply);
     if (!accepted.ok) return { ok: false, error: accepted.error };
     const ids = link(introducer, joiner, 'admit', 'joiner');

@@ -37,8 +37,11 @@ function normalizeTurn(raw) {
  * @param {import('./window-manager').WindowManager} deps.windows
  * @param {{read(): Buffer|null, write(b: Buffer): boolean}} deps.turnSecret
  * @param {() => boolean} deps.localIsIdle Rooms take over the timer, so a running personal session blocks them.
+ * @param {() => Promise<{ok: boolean, error?: string}>} [deps.gate] Resolves not-ok when this app version is too old for the relay.
+ * @param {import('./room-link').RoomLink} deps.link
+ * @param {import('./room-relay').RelayClient} deps.relay
  */
-function registerRoomIpc({ service, windows, turnSecret, localIsIdle }) {
+function registerRoomIpc({ service, link, relay, windows, turnSecret, localIsIdle, gate = async () => ({ ok: true }) }) {
   const loadTurn = () => {
     const stored = turnSecret.read();
     if (!stored) return normalizeTurn(null);
@@ -66,12 +69,55 @@ function registerRoomIpc({ service, windows, turnSecret, localIsIdle }) {
 
   ipcMain.handle('flowcus:room-get', () => ({ view: service.view(), iceServers: iceServers() }));
 
-  ipcMain.handle('flowcus:room-create', (_event, name) => {
+  ipcMain.handle('flowcus:room-create', async (_event, name) => {
     if (service.status === 'active') return { ok: false, error: 'You are already in a room.' };
     if (!localIsIdle()) return busy;
     const clean = cleanName(name);
     if (!clean) return { ok: false, error: 'Enter a name first.' };
-    return { ok: true, view: service.createRoom(clean) };
+    const allowed = await gate();
+    if (!allowed.ok) return allowed;
+    return link.createRoom(clean);
+  });
+
+  // Joining by code: check the code, then trade the signed offer for a reply.
+  ipcMain.handle('flowcus:room-join-code', async (_event, code) => {
+    if (service.status === 'active') return { ok: false, error: 'You are already in a room.' };
+    if (!localIsIdle()) return busy;
+    if (!isText(code, 64)) return { ok: false, error: 'Enter a room code first.' };
+    const allowed = await gate();
+    if (!allowed.ok) return allowed;
+    return link.startJoin(code);
+  });
+  ipcMain.handle('flowcus:room-join-offer', (_event, args) => {
+    const name = cleanName(args && args.name);
+    if (!name) return { ok: false, error: 'Enter a name first.' };
+    if (!args || !isText(args.sdp, 16384)) return { ok: false, error: 'Could not build the offer.' };
+    return link.submitOffer(name, args.sdp);
+  });
+  ipcMain.handle('flowcus:room-relay-answer', (_event, args) => {
+    const valid = args && isText(args.joinId, 64) && isText(args.sdp, 16384) && isText(args.to, 256) && isText(args.offerSdp, 16384);
+    return valid ? link.answerOffer(args) : { ok: false };
+  });
+  ipcMain.handle('flowcus:room-relay-decline', (_event, joinId) => {
+    if (isText(joinId, 64)) link.declineOffer(joinId);
+    return { ok: true };
+  });
+
+  // Moderation. The relay re-checks who may rotate; the room service checks everything else.
+  ipcMain.handle('flowcus:room-mod', (_event, args) => {
+    if (!args || !P.MOD_ACTIONS.includes(args.action)) return { ok: false, error: 'Unknown action.' };
+    if (args.action === 'policy') return service.moderate('policy', undefined, args.value);
+    return isText(args.target, 256) ? service.moderate(args.action, args.target) : { ok: false, error: 'Pick a person first.' };
+  });
+  ipcMain.handle('flowcus:room-rotate', () => {
+    if (service.selfRole === 'member') return { ok: false, error: 'Only moderators can change the code.' };
+    relay.rotate();
+    return { ok: true };
+  });
+  ipcMain.handle('flowcus:room-end', () => {
+    if (!service.isHost) return { ok: false, error: 'Only the host can end the room.' };
+    relay.end();
+    return service.endRoom();
   });
 
   ipcMain.handle('flowcus:room-make-invite', (_event, args) => {
@@ -85,8 +131,10 @@ function registerRoomIpc({ service, windows, turnSecret, localIsIdle }) {
   ipcMain.handle('flowcus:room-open-invite', (_event, text) =>
     isText(text) ? service.openInvite(text) : { ok: false, error: 'Paste an invite first.' }
   );
-  ipcMain.handle('flowcus:room-make-reply', (_event, sdp) =>
-    isText(sdp) ? service.makeReply(sdp) : { ok: false, error: 'Could not build the reply.' }
+  ipcMain.handle('flowcus:room-make-reply', (_event, args) =>
+    args && isText(args.sdp) && isText(args.to, 256) && isText(args.offerSdp)
+      ? service.makeReply(args.sdp, { to: args.to, offerSdp: args.offerSdp })
+      : { ok: false, error: 'Could not build the reply.' }
   );
   ipcMain.handle('flowcus:room-open-reply', (_event, text) =>
     isText(text) ? service.openReply(text) : { ok: false, error: 'Paste a reply first.' }

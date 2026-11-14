@@ -1,6 +1,6 @@
 {
   "name": "flowcus",
-  "version": "4.1.0",
+  "version": "5.0.0",
   "description": "Premium dark-mode dual-timer focus app with the Wall Method, the Flowcus 3.0 tier engine and a native analytics dashboard",
   "main": "src/main/main.js",
   "author": "Flowcus",

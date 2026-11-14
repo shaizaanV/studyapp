@@ -14,7 +14,7 @@
   if (typeof module === 'object' && module.exports) module.exports = factory();
   else root.RoomProtocol = factory();
 })(typeof self !== 'undefined' ? self : this, function () {
-  const PROTOCOL_VERSION = 1;
+  const PROTOCOL_VERSION = 2;
 
   const MAX_PEERS = 12;
   const HEARTBEAT_MS = 2000;
@@ -25,6 +25,11 @@
   const CHAT_MAX_BYTES = 2048;
   const CHAT_RATE_PER_SEC = 5;
   const MAX_NAME_LENGTH = 40;
+  const MAX_BANNED = 64;
+  const ADMISSION_MODES = ['open', 'ask'];
+  const MOD_ACTIONS = ['kick', 'ban', 'mute', 'unmute', 'promote', 'demote', 'policy'];
+  const REMOVAL_REASONS = ['kick', 'ban', 'ended'];
+  const DENY_REASONS = ['declined', 'banned', 'full'];
 
   const MIN_DURATION_MS = 1000;
   const MAX_DURATION_MS = 4 * 60 * 60000;
@@ -82,6 +87,27 @@
         if (!roster.members.includes(key) || !isNonEmptyString(name, MAX_NAME_LENGTH)) return bad('roster: names');
       }
     }
+    const members = roster.members;
+    if (roster.admission !== undefined && !ADMISSION_MODES.includes(roster.admission)) return bad('roster: admission');
+    if (roster.mods !== undefined) {
+      const mods = roster.mods;
+      if (!Array.isArray(mods) || mods.length > MAX_PEERS) return bad('roster: mods');
+      if (new Set(mods).size !== mods.length) return bad('roster: duplicate mod');
+      if (!mods.every((k) => members.includes(k) && k !== roster.hostKey)) return bad('roster: mod not a non-host member');
+    }
+    if (roster.muted !== undefined) {
+      const muted = roster.muted;
+      if (!Array.isArray(muted) || muted.length > MAX_PEERS) return bad('roster: muted');
+      if (new Set(muted).size !== muted.length) return bad('roster: duplicate muted');
+      if (!muted.every((k) => members.includes(k) && k !== roster.hostKey)) return bad('roster: muted not a non-host member');
+    }
+    if (roster.banned !== undefined) {
+      const banned = roster.banned;
+      if (!Array.isArray(banned) || banned.length > MAX_BANNED) return bad('roster: banned');
+      if (!banned.every((k) => isNonEmptyString(k))) return bad('roster: banned key');
+      if (new Set(banned).size !== banned.length) return bad('roster: duplicate ban');
+      if (banned.some((k) => members.includes(k))) return bad('roster: banned member');
+    }
     return ok();
   }
 
@@ -102,7 +128,16 @@
     'join-request': (b) =>
       isObject(b) && isNonEmptyString(b.name, MAX_NAME_LENGTH) && isNonEmptyString(b.pubKey) && isNonEmptyString(b.introducer)
         ? ok() : bad('join-request: body'),
-    'join-deny': (b) => (isObject(b) && isNonEmptyString(b.joiner) ? ok() : bad('join-deny: body')),
+    'join-deny': (b) =>
+      isObject(b) && isNonEmptyString(b.joiner) && (b.reason === undefined || DENY_REASONS.includes(b.reason))
+        ? ok() : bad('join-deny: body'),
+    'mod-action': (b) =>
+      isObject(b) && MOD_ACTIONS.includes(b.action) &&
+      (b.action === 'policy' ? ADMISSION_MODES.includes(b.value) : isNonEmptyString(b.target))
+        ? ok() : bad('mod-action: body'),
+    removed: (b) =>
+      isObject(b) && isNonEmptyString(b.target) && REMOVAL_REASONS.includes(b.reason) ? ok() : bad('removed: body'),
+    'room-end': (b) => (isObject(b) ? ok() : bad('room-end: body')),
     roster: (b) => validateRoster(b),
     'timer-state': validateTimerState,
     'timer-action': (b) =>
@@ -163,25 +198,36 @@
   }
 
   /**
+   * Who takes over when the host is gone: the first reachable moderator in
+   * promotion order, else the earliest-joined reachable member (roster order
+   * is join order). The departing host is never a candidate.
+   */
+  function electSuccessor(roster, connectedKeys) {
+    const connected = new Set(connectedKeys);
+    const eligible = (k) => k !== roster.hostKey && connected.has(k);
+    const mod = (roster.mods || []).find((k) => eligible(k) && roster.members.includes(k));
+    if (mod) return mod;
+    return roster.members.find(eligible) || null;
+  }
+
+  /**
    * Should `selfKey` claim host now? True once the host has been silent for
-   * HOST_LOST_MS and this peer is the elected candidate. `connectedKeys` must
+   * HOST_LOST_MS and this peer is the elected successor. `connectedKeys` must
    * include selfKey.
    */
   function shouldClaimHost({ selfKey, roster, connectedKeys, lastHostHeardAt, now }) {
     if (now - lastHostHeardAt < HOST_LOST_MS) return false;
-    const reachable = connectedKeys.filter((k) => k !== roster.hostKey);
-    return electHost(roster.members, reachable) === selfKey;
+    return electSuccessor(roster, connectedKeys) === selfKey;
   }
 
   /**
    * Decides whether to accept `roster`, signed by `signer` (signature already
    * verified). `current` is the locally recognised {hostKey, hostSeq,
-   * rosterSeq, members}. Three legitimate paths:
+   * rosterSeq, members, mods}. Three legitimate paths:
    *  - the current host publishes the next roster;
    *  - a migration claim: a roster carrying a higher hostSeq, signed by the
-   *    lowest key the acceptor can currently reach among the last roster's
-   *    members (the departing host excluded). "Active" is judged from the
-   *    acceptor's own view, since a peer's claim of being lowest is unverifiable.
+   *    successor (first reachable moderator, else earliest joiner) from the
+   *    acceptor's own view, since a peer's claim of being next is unverifiable.
    *    `connectedKeys` defaults to every member when the view is unknown;
    *  - a merge tie: at equal hostSeq, a member with the lower key beats the
    *    local host in compareHostClaims.
@@ -203,8 +249,8 @@
     }
 
     if (roster.hostSeq > current.hostSeq) {
-      const reachable = (connectedKeys || current.members).filter((k) => k !== current.hostKey);
-      return electHost(current.members, reachable) === signer ? ok() : bad('roster: signer is not the lowest active key');
+      return electSuccessor(current, connectedKeys || current.members) === signer
+        ? ok() : bad('roster: signer is not the next in succession');
     }
 
     if (roster.hostSeq === current.hostSeq && compareHostClaims({ hostKey: signer, hostSeq: roster.hostSeq }, current) > 0) {
@@ -287,6 +333,7 @@
   /** Host-side admission gate: is there room, and is the request still fresh? */
   function canAdmit({ roster, joinerKey, requestedAt, now }) {
     if (roster.members.includes(joinerKey)) return bad('admit: already a member');
+    if ((roster.banned || []).includes(joinerKey)) return bad('admit: banned');
     if (roster.members.length >= MAX_PEERS) return bad('admit: room full');
     if (now - requestedAt > ADMISSION_TIMEOUT_MS) return bad('admit: request timed out');
     return ok();
@@ -303,6 +350,9 @@
     CHAT_MAX_BYTES,
     CHAT_RATE_PER_SEC,
     MAX_NAME_LENGTH,
+    MAX_BANNED,
+    ADMISSION_MODES,
+    MOD_ACTIONS,
     ROOM_PHASES,
     TIMER_ACTIONS,
     canonicalJson,
@@ -312,6 +362,7 @@
     allowedWhileQuarantined,
     compareHostClaims,
     electHost,
+    electSuccessor,
     shouldClaimHost,
     acceptRoster,
     resolveMerge,

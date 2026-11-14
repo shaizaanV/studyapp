@@ -3,7 +3,7 @@
 A dark-mode focus timer for Windows, Linux and macOS, built on Electron. Two
 timing modes (a fixed Pomodoro and a piecewise-tiered Flow mode), an optional
 "Wall Method" pre-focus baseline, a local analytics dashboard, and peer-to-peer
-study rooms with no backend of their own. MIT licensed.
+study rooms that join with a short code. MIT licensed.
 
 ## Architecture
 
@@ -27,27 +27,44 @@ Strict segmentation by trust boundary:
 
 ## Study rooms
 
-Rooms are peer-to-peer over WebRTC data channels — full mesh, no signaling
-server, no TURN unless the user supplies their own credentials. Capacity is
-capped at **12 peers** (`MAX_PEERS` in `src/shared/room-protocol.js`).
+Rooms are peer-to-peer over WebRTC data channels — full mesh, no TURN unless
+the user supplies their own credentials. Capacity is capped at **12 peers**
+(`MAX_PEERS` in `src/shared/room-protocol.js`).
 
-Joining is a signed 4-step handshake (`src/main/room-service.js`): the joiner
-wraps an offer SDP as a signed invite, the host validates it and wraps a
-signed reply, the joiner validates that reply, and the connection completes.
-A channel opened by pasting a stranger's invite starts **quarantined** — it
-may carry nothing but a join request until the host admits it — and only then
-moves to `active`.
+**Joining by code.** The creator gets a 6-character code (`K7Q-X2M`, also a
+`flowcus://join/K7QX2M` link and a QR code). A small signaling relay
+(`relay/`, a free Cloudflare Worker, see `relay/README.md`) swaps the signed
+handshake blobs between the joiner and a member; it never sees timer or chat
+traffic, and the joiner's connection to it closes once the peer-to-peer
+channel opens. All relay traffic runs in the main process
+(`src/main/room-relay.js`, glued by `room-link.js`) because the renderer's CSP
+forbids network access. A relay that is down, over quota or not configured
+degrades to **Advanced**: the original copy-paste handshake, unchanged.
+
+The handshake itself is signed end to end (`src/main/room-service.js`): the
+joiner wraps an offer SDP as a signed invite, a member answers with a signed
+reply bound to that joiner and that exact offer, and a channel opened this way
+starts **quarantined** — it may carry nothing but a join request — until it is
+admitted and moves to `active`. By default admission is instant (anyone with
+the code may join); the host or a moderator can switch on "Ask me before
+people join" for the old approve/decline dialog.
+
+**Moderation.** The host and moderators they promote can kick, ban (by key in
+the signed roster, plus a best-effort address block at the relay), mute chat,
+rotate the code and toggle ask-first; only the host demotes moderators or ends
+the room. Moderators can act only on plain members.
 
 Identity is a per-room Ed25519 keypair generated with `node:crypto`
 (`room-auth.js`); the private key never leaves that module and is persisted
 only via the encrypted local store in `secret-file.js`. Every roster, host
 claim and chat frame is signed and verified against this key.
 
-Host handover survives a host disappearing or two sides disagreeing about who
-is host — split-brain resolution (`compareHostClaims` /
-`acceptRoster` in `room-protocol.js`) orders competing claims by
-**`(hostSeq, hostKey)`**: the higher sequence number wins outright; a tie
-falls to the lower public key. A member cannot promote itself to host by
+Host handover survives a host disappearing: the first moderator takes over,
+otherwise the earliest joiner (`electSuccessor` in `room-protocol.js`; the
+roster keeps join order). When two sides disagree about who is host,
+split-brain resolution (`compareHostClaims` / `acceptRoster`) orders competing
+claims by **`(hostSeq, hostKey)`**: the higher sequence number wins outright; a
+tie falls to the lower public key. A member cannot promote itself to host by
 publishing a roster it wasn't given legitimate authority to sign.
 
 Chat is ephemeral and in-memory only — it lives in the room's data-channel
@@ -55,7 +72,7 @@ traffic and process memory, never written to disk.
 
 ## Testing
 
-135 tests, 0 failures, run with Node's built-in test runner:
+189 tests, 0 failures, run with Node's built-in test runner:
 
 ```
 npm test
@@ -63,10 +80,13 @@ npm test
 
 Coverage includes the timer engine, the Flowcus tier algorithm, the room
 protocol's admission and split-brain rules, room auth, room clock sync, and
-the analytics rollup. A separate multi-instance, headless end-to-end check
-(`npm run room:e2e`) drives two real Flowcus processes over the Chrome
-DevTools Protocol through a full room lifecycle — invite, admission, timer
-sync, two-way chat, and host handover after the original host's window closes.
+the analytics rollup, moderation and succession, the relay core (against an
+in-memory fake) and the QR encoder. A separate multi-instance, headless
+end-to-end check (`npm run room:e2e`) drives two real Flowcus processes over
+the Chrome DevTools Protocol, with a local relay (`tools/local-relay.js`),
+through a full room lifecycle — join by code, timer sync, two-way chat, code
+rotation, kick and rejoin, and host handover after the original host's window
+closes.
 
 ## Auto-update
 

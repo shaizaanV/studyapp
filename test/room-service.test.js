@@ -10,7 +10,7 @@ const MIN = 60000;
 
 /** A host with `count` admitted members, each introduced by the host. */
 function room(count = 1, worldOptions) {
-  const world = createWorld();
+  const world = createWorld({ askFirst: true });
   const host = world.addNode('host', worldOptions);
   host.svc.createRoom('Host');
   const peers = [];
@@ -24,10 +24,9 @@ function room(count = 1, worldOptions) {
   return { world, host, peers };
 }
 
-const lowestFirst = (nodes) => [...nodes].sort((a, b) => (a.key < b.key ? -1 : 1));
 
 test('creating a room makes you the host of a one-person roster', () => {
-  const world = createWorld();
+  const world = createWorld({ askFirst: true });
   const host = world.addNode('host');
   const view = host.svc.createRoom('Hana');
   assert.equal(view.status, 'active');
@@ -39,7 +38,7 @@ test('creating a room makes you the host of a one-person roster', () => {
 });
 
 test('a joiner stays quarantined until the host approves, then becomes a follower', () => {
-  const world = createWorld();
+  const world = createWorld({ askFirst: true });
   const host = world.addNode('host');
   host.svc.createRoom('Host');
   const joiner = world.addNode('joiner');
@@ -63,7 +62,7 @@ test('a joiner stays quarantined until the host approves, then becomes a followe
 });
 
 test('a quarantined channel cannot carry chat or timer traffic', () => {
-  const world = createWorld();
+  const world = createWorld({ askFirst: true });
   const host = world.addNode('host');
   host.svc.createRoom('Host');
   const joiner = world.addNode('joiner');
@@ -82,7 +81,7 @@ test('a quarantined channel cannot carry chat or timer traffic', () => {
 });
 
 test('a join-request that names someone else, or another introducer, is ignored', () => {
-  const world = createWorld();
+  const world = createWorld({ askFirst: true });
   const host = world.addNode('host');
   host.svc.createRoom('Host');
   const joiner = world.addNode('joiner');
@@ -114,7 +113,7 @@ test('unsigned, tampered and oversized frames are dropped', () => {
 });
 
 test('the host can decline: the joiner is told and the channel closes', () => {
-  const world = createWorld();
+  const world = createWorld({ askFirst: true });
   const host = world.addNode('host');
   host.svc.createRoom('Host');
   const joiner = world.addNode('joiner');
@@ -130,7 +129,7 @@ test('the host can decline: the joiner is told and the channel closes', () => {
 });
 
 test('an unanswered request times out after 60 seconds', () => {
-  const world = createWorld();
+  const world = createWorld({ askFirst: true });
   const host = world.addNode('host');
   host.svc.createRoom('Host');
   const joiner = world.addNode('joiner');
@@ -203,7 +202,7 @@ test('a room holds 12 people and refuses the 13th at the invite stage', () => {
 });
 
 test('timer changes reach every follower, even with a skewed clock', () => {
-  const world = createWorld();
+  const world = createWorld({ askFirst: true });
   const host = world.addNode('host');
   host.svc.createRoom('Host');
   const skewed = world.addNode('skewed', { clockSkewMs: 7000 });
@@ -223,7 +222,7 @@ test('timer changes reach every follower, even with a skewed clock', () => {
 });
 
 test('a joiner catches up to a session already in progress', () => {
-  const world = createWorld();
+  const world = createWorld({ askFirst: true });
   const host = world.addNode('host');
   host.svc.createRoom('Host');
   host.timer.dispatch('start');
@@ -309,9 +308,9 @@ test('a stale or replayed roster is ignored', () => {
   assert.equal(c.svc.roster.members.length, 3);
 });
 
-test('when the host goes silent for 8 seconds, the lowest remaining key takes over', () => {
+test('when the host goes silent for 8 seconds, the earliest joiner takes over', () => {
   const { world, host, peers } = room(4);
-  const expected = lowestFirst(peers)[0];
+  const expected = peers[0];
   host.timer.dispatch('start');
   world.advance(2000);
   const endsAt = host.timer.snapshot().endsAtEpochMs;
@@ -367,7 +366,7 @@ test('a joiner that has not linked to the host yet never mistakes silence for a 
 
 test('a returning old host cannot overwrite the new host state', () => {
   const { world, host, peers } = room(3);
-  const expected = lowestFirst(peers)[0];
+  const expected = peers[0];
   world.kill(host);
   world.advance(12_000);
   assert.ok(expected.svc.isHost);
@@ -422,7 +421,7 @@ test('an invite you made yourself, or for a room you are already in, is refused'
 });
 
 test('a reply from a different room, or with no room, is not accepted', () => {
-  const world = createWorld();
+  const world = createWorld({ askFirst: true });
   const host = world.addNode('host');
   const joiner = world.addNode('joiner');
   joiner.svc.makeInvite('joiner', 'sdp');
@@ -431,7 +430,7 @@ test('a reply from a different room, or with no room, is not accepted', () => {
 });
 
 test('a joiner refuses a roster for a different room than the one it was invited to', () => {
-  const world = createWorld();
+  const world = createWorld({ askFirst: true });
   const host = world.addNode('host');
   host.svc.createRoom('Host');
   const impostor = world.addNode('impostor');

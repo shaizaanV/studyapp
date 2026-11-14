@@ -4,6 +4,8 @@ const crypto = require('node:crypto');
 const { EventEmitter } = require('node:events');
 
 const P = require('../shared/room-protocol');
+const Code = require('../shared/room-code');
+const { hashSdp } = require('./room-invite');
 
 const MAX_FRAME_CHARS = 64 * 1024;
 const MAX_CHAT_LOG = 200;
@@ -16,7 +18,10 @@ const NEVER_SEEN_GRACE_MS = 30000;
 const DENY_FLUSH_MS = 1500;
 
 /** Frames that must arrive on the channel of the peer who sent them. */
-const DIRECT_ONLY = new Set(['heartbeat', 'ping', 'pong', 'chat', 'join-request', 'join-deny', 'leave']);
+const DIRECT_ONLY = new Set(['heartbeat', 'ping', 'pong', 'chat', 'join-request', 'join-deny', 'leave', 'mod-action', 'removed', 'room-end']);
+
+/** Maps a canAdmit error string to a join-deny reason. */
+const denyReason = (error) => (/banned/.test(error) ? 'banned' : /full/.test(error) ? 'full' : 'declined');
 
 /**
  * Everything about a study room that is not the WebRTC plumbing or the UI:
@@ -85,6 +90,9 @@ class RoomService extends EventEmitter {
     this.chat = [];
     this.joining = null; // {introducerKey, roomId, since}
     this.error = null;
+    this.notice = null; // {kind: 'kicked'|'banned'|'ended', text}
+    this.relayInfo = { state: 'off', code: null }; // state: off | connecting | up | down
+    this.offerSdp = '';
     this.hostHeardAt = 0;
     this.lastBeatAt = 0;
     this.lastPingAt = 0;
@@ -145,8 +153,13 @@ class RoomService extends EventEmitter {
       hostKey: this.selfKey,
       members: [this.selfKey],
       names: { [this.selfKey]: name },
+      admission: 'open',
+      mods: [],
+      banned: [],
+      muted: [],
     };
     this.authorityRaw = this.sign('roster', this.roster);
+    this.emit('authority', this.authorityRaw);
     this.hostHeardAt = this.now();
     this.timer.becomeHost({ hostSeq: 0, inherit: false });
     this.emit('joined');
@@ -162,6 +175,7 @@ class RoomService extends EventEmitter {
     this.reset();
     this.selfName = name;
     this.status = 'joining';
+    this.offerSdp = sdp;
     return { ok: true, invite: this.invites.encode({ kind: 'invite', roomId: '', name, sdp }) };
   }
 
@@ -176,13 +190,15 @@ class RoomService extends EventEmitter {
     const { invite } = decoded;
     if (invite.pubKey === this.selfKey) return { ok: false, error: 'That invite is your own.' };
     if (this.roster.members.includes(invite.pubKey)) return { ok: false, error: `${invite.name} is already in this room.` };
+    if ((this.roster.banned || []).includes(invite.pubKey)) return { ok: false, error: `${invite.name} is banned from this room.` };
     return { ok: true, invite: { pubKey: invite.pubKey, name: invite.name, sdp: invite.sdp } };
   }
 
   /** Member, step 3: wrap the renderer's answer SDP as a signed reply blob. */
-  makeReply(sdp) {
+  makeReply(sdp, { to = '', offerSdp = '' } = {}) {
     if (this.status !== 'active') return { ok: false, error: 'Create or join a room first.' };
-    return { ok: true, reply: this.invites.encode({ kind: 'reply', roomId: this.roster.roomId, name: this.selfName, sdp }) };
+    const offerHash = offerSdp ? hashSdp(offerSdp) : '';
+    return { ok: true, reply: this.invites.encode({ kind: 'reply', roomId: this.roster.roomId, name: this.selfName, sdp, to, offerHash }) };
   }
 
   /** Joiner, step 4: check the pasted reply. The renderer then completes the connection. */
@@ -192,6 +208,9 @@ class RoomService extends EventEmitter {
     if (!decoded.ok) return decoded;
     const { invite: reply } = decoded;
     if (!reply.roomId) return { ok: false, error: 'That reply has no room in it.' };
+    if (reply.to !== this.selfKey || reply.offerHash !== hashSdp(this.offerSdp)) {
+      return { ok: false, error: 'That reply was not made for your invite.' };
+    }
     this.joining = { introducerKey: reply.pubKey, roomId: reply.roomId, since: this.now() };
     this.error = null;
     this.emitState();
@@ -304,6 +323,15 @@ class RoomService extends EventEmitter {
       case 'join-deny':
         this.onJoinDeny(frame);
         break;
+      case 'mod-action':
+        this.onModAction(frame);
+        break;
+      case 'removed':
+        this.onRemoved(frame);
+        break;
+      case 'room-end':
+        this.onRoomEnd(frame);
+        break;
       case 'ping':
         this.onPing(frame, channel);
         break;
@@ -334,10 +362,15 @@ class RoomService extends EventEmitter {
 
     if (this.isHost) {
       const gate = P.canAdmit({ roster: this.roster, joinerKey: joiner, requestedAt: this.now(), now: this.now() });
-      if (!gate.ok) return this.denyPending(joiner);
+      if (!gate.ok) return this.denyPending(joiner, { reason: denyReason(gate.error) });
+      if (this.roster.admission !== 'ask') {
+        this.approve(joiner);
+        return;
+      }
       this.emitState();
       return;
     }
+    if ((this.roster.banned || []).includes(joiner)) return this.denyPending(joiner, { reason: 'banned' });
     const hostChannel = this.byKey.get(this.roster.hostKey);
     if (!hostChannel) return this.denyPending(joiner);
     this.sendTo(hostChannel, this.sign('join-request', { name: body.name, pubKey: joiner, introducer: this.selfKey }));
@@ -352,32 +385,36 @@ class RoomService extends EventEmitter {
     const gate = P.canAdmit({ roster: this.roster, joinerKey: body.pubKey, requestedAt: this.now(), now: this.now() });
     if (!gate.ok) {
       const introducerChannel = this.byKey.get(frame.from);
-      if (introducerChannel) this.sendTo(introducerChannel, this.sign('join-deny', { joiner: body.pubKey }));
+      if (introducerChannel) this.sendTo(introducerChannel, this.sign('join-deny', { joiner: body.pubKey, reason: denyReason(gate.error) }));
       return;
     }
     this.pending.set(body.pubKey, { key: body.pubKey, name: body.name, introducer: frame.from, channelId: null, at: this.now() });
+    if (this.roster.admission !== 'ask') {
+      this.approve(body.pubKey);
+      return;
+    }
     this.emitState();
   }
 
   /** The host said no. The introducer passes the verdict to the stranger and hangs up. */
   onJoinDeny(frame) {
     if (frame.from !== this.roster.hostKey) return;
-    this.denyPending(frame.body.joiner, { fromHost: true });
+    this.denyPending(frame.body.joiner, { fromHost: true, reason: frame.body.reason });
   }
 
-  denyPending(joinerKey, { fromHost = false } = {}) {
+  denyPending(joinerKey, { fromHost = false, reason } = {}) {
     const entry = this.pending.get(joinerKey);
     this.pending.delete(joinerKey);
     if (entry && entry.channelId) {
       const channel = this.channels.get(entry.channelId);
       if (channel) {
-        this.sendTo(channel.id, this.sign('join-deny', { joiner: joinerKey }));
+        this.sendTo(channel.id, this.sign('join-deny', { joiner: joinerKey, reason }));
         channel.state = 'denied';
         channel.closeAt = this.now() + DENY_FLUSH_MS;
       }
     } else if (entry && !fromHost && this.isHost) {
       const introducerChannel = this.byKey.get(entry.introducer);
-      if (introducerChannel) this.sendTo(introducerChannel, this.sign('join-deny', { joiner: joinerKey }));
+      if (introducerChannel) this.sendTo(introducerChannel, this.sign('join-deny', { joiner: joinerKey, reason }));
     }
     this.emitState();
   }
@@ -389,7 +426,7 @@ class RoomService extends EventEmitter {
     if (!entry) return { ok: false, error: 'That request is no longer pending.' };
     const gate = P.canAdmit({ roster: this.roster, joinerKey, requestedAt: entry.at, now: this.now() });
     if (!gate.ok) {
-      this.denyPending(joinerKey);
+      this.denyPending(joinerKey, { reason: denyReason(gate.error) });
       return { ok: false, error: gate.error };
     }
     this.pending.delete(joinerKey);
@@ -423,7 +460,8 @@ class RoomService extends EventEmitter {
 
   onJoiningFrame(channel, frame, raw) {
     if (frame.type === 'join-deny' && frame.body.joiner === this.selfKey) {
-      this.fail('The host declined your request to join.');
+      const why = { banned: 'You are banned from this room.', full: 'That room is full.' }[frame.body.reason];
+      this.fail(why || 'The host declined your request to join.');
       return;
     }
     if (frame.type !== 'roster' && frame.type !== 'host-claim') return;
@@ -515,11 +553,15 @@ class RoomService extends EventEmitter {
   }
 
   /** Host: publish a changed roster to everyone. */
-  publishRoster({ members, names }) {
+  publishRoster({ members = this.roster.members, names = this.roster.names || {}, ...patch }) {
     const live = new Set(members);
     const trimmed = Object.fromEntries(Object.entries(names).filter(([key]) => live.has(key)));
-    this.roster = { ...this.roster, rosterSeq: this.roster.rosterSeq + 1, members, names: trimmed };
+    const next = { ...this.roster, ...patch, members, names: trimmed, rosterSeq: this.roster.rosterSeq + 1 };
+    next.mods = (next.mods || []).filter((key) => live.has(key) && key !== next.hostKey);
+    next.muted = (next.muted || []).filter((key) => live.has(key) && key !== next.hostKey);
+    this.roster = next;
     this.authorityRaw = this.sign('roster', this.roster);
+    this.emit('authority', this.authorityRaw);
     this.broadcastRaw(this.authorityRaw);
     this.emitState();
   }
@@ -527,7 +569,7 @@ class RoomService extends EventEmitter {
   /** Follower: the host has been silent long enough and we are next in line. */
   claimHost() {
     const reachable = new Set(this.connectedKeys());
-    const members = this.roster.members.filter((key) => reachable.has(key)).sort();
+    const members = this.roster.members.filter((key) => reachable.has(key));
     const roster = {
       roomId: this.roster.roomId,
       rosterSeq: this.roster.rosterSeq + 1,
@@ -535,11 +577,16 @@ class RoomService extends EventEmitter {
       hostKey: this.selfKey,
       members,
       names: Object.fromEntries(Object.entries(this.roster.names || {}).filter(([key]) => reachable.has(key))),
+      admission: this.roster.admission || 'open',
+      mods: (this.roster.mods || []).filter((key) => reachable.has(key) && key !== this.selfKey),
+      banned: this.roster.banned || [],
+      muted: (this.roster.muted || []).filter((key) => reachable.has(key) && key !== this.selfKey),
     };
     this.roster = roster;
     this.pending.clear();
     this.samples = [];
     this.authorityRaw = this.sign('host-claim', { hostKey: this.selfKey, hostSeq: roster.hostSeq, roster });
+    this.emit('authority', this.authorityRaw);
     // The claim goes out first: peers drop a timer state whose hostSeq they have not adopted yet.
     this.broadcastRaw(this.authorityRaw);
     this.timer.becomeHost({ hostSeq: roster.hostSeq });
@@ -639,7 +686,8 @@ class RoomService extends EventEmitter {
     if (this.status !== 'active') return { ok: false, error: 'You are not in a room.' };
     const clean = String(text || '').trim();
     if (!clean) return { ok: false, error: 'Empty message.' };
-    if (P.validateFrame({ v: 1, type: 'chat', from: 'x', seq: 0, ts: 0, sig: 'x', body: { text: clean } }).ok !== true) {
+    if ((this.roster.muted || []).includes(this.selfKey)) return { ok: false, error: 'A moderator muted you.' };
+    if (P.validateFrame({ v: P.PROTOCOL_VERSION, type: 'chat', from: 'x', seq: 0, ts: 0, sig: 'x', body: { text: clean } }).ok !== true) {
       return { ok: false, error: `Messages are limited to ${P.CHAT_MAX_BYTES} bytes.` };
     }
     if (!this.chatLimiter.allow(this.selfKey, this.now())) return { ok: false, error: 'Slow down a little.' };
@@ -651,6 +699,7 @@ class RoomService extends EventEmitter {
   }
 
   onChat(frame, now) {
+    if ((this.roster.muted || []).includes(frame.from)) return;
     if (!this.chatLimiter.allow(frame.from, now)) return;
     this.pushChat(frame.from, frame.body.text, now);
     this.emitState();
@@ -663,6 +712,159 @@ class RoomService extends EventEmitter {
 
   nameOf(key) {
     return (this.roster && this.roster.names && this.roster.names[key]) || `Guest ${key.slice(0, 4)}`;
+  }
+
+  /** The relay link reports its state and the room's current code here. */
+  setRelayInfo(patch) {
+    this.relayInfo = { ...this.relayInfo, ...patch };
+    this.emitState();
+  }
+
+  // --------------------------------------------------------------- moderation
+
+  roleOf(key) {
+    if (!this.roster) return 'member';
+    if (key === this.roster.hostKey) return 'host';
+    return (this.roster.mods || []).includes(key) ? 'mod' : 'member';
+  }
+
+  get selfRole() {
+    return this.status === 'active' ? this.roleOf(this.selfKey) : 'member';
+  }
+
+  /** Mods may act on plain members; only the host may act on mods. Nobody acts on the host or themselves. */
+  canModerate(actor, target) {
+    if (actor === target || target === this.roster.hostKey) return false;
+    const actorRole = this.roleOf(actor);
+    if (actorRole === 'host') return true;
+    return actorRole === 'mod' && this.roleOf(target) === 'member';
+  }
+
+  /** Local entry point for the UI: apply directly as host, else ask the host. */
+  moderate(action, target, value) {
+    if (this.status !== 'active') return { ok: false, error: 'You are not in a room.' };
+    const role = this.selfRole;
+    if (role === 'member') return { ok: false, error: 'Only moderators can do that.' };
+    if (this.isHost) return this.applyModAction(this.selfKey, { action, target, value });
+    const hostChannel = this.byKey.get(this.roster.hostKey);
+    if (!hostChannel) return { ok: false, error: 'The host is not reachable.' };
+    const body = action === 'policy' ? { action, value } : { action, target };
+    this.sendTo(hostChannel, this.sign('mod-action', body));
+    return { ok: true };
+  }
+
+  onModAction(frame) {
+    if (!this.isHost) return;
+    this.applyModAction(frame.from, frame.body);
+  }
+
+  /** Host only: validate who is asking and what for, then publish the result. */
+  applyModAction(actor, { action, target, value }) {
+    if (!this.isHost) return { ok: false, error: 'Only the host applies moderation.' };
+    const role = this.roleOf(actor);
+    if (role === 'member') return { ok: false, error: 'Only moderators can do that.' };
+    const roster = this.roster;
+
+    if (action === 'policy') {
+      if (!P.ADMISSION_MODES.includes(value)) return { ok: false, error: 'Unknown admission mode.' };
+      this.publishRoster({ admission: value });
+      return { ok: true };
+    }
+    if (action === 'demote') {
+      if (role !== 'host') return { ok: false, error: 'Only the host can demote a moderator.' };
+      if (!(roster.mods || []).includes(target)) return { ok: false, error: 'That person is not a moderator.' };
+      this.publishRoster({ mods: roster.mods.filter((key) => key !== target) });
+      return { ok: true };
+    }
+    if (action === 'ban' && !roster.members.includes(target)) {
+      // A pending joiner can be banned before they are ever a member.
+      if (!this.pending.has(target)) return { ok: false, error: 'That person is not in the room.' };
+      this.denyPending(target, { reason: 'banned' });
+      this.publishRoster({ banned: [...new Set([...(roster.banned || []), target])].slice(-P.MAX_BANNED) });
+      return { ok: true };
+    }
+    if (!roster.members.includes(target)) return { ok: false, error: 'That person is not in the room.' };
+    if (!this.canModerate(actor, target)) return { ok: false, error: 'You cannot do that to this person.' };
+
+    switch (action) {
+      case 'kick':
+        this.evict(target, 'kick');
+        this.publishRoster({ members: roster.members.filter((key) => key !== target) });
+        return { ok: true };
+      case 'ban':
+        this.evict(target, 'ban');
+        this.publishRoster({
+          members: roster.members.filter((key) => key !== target),
+          banned: [...new Set([...(roster.banned || []), target])].slice(-P.MAX_BANNED),
+        });
+        return { ok: true };
+      case 'mute':
+        this.publishRoster({ muted: [...new Set([...(roster.muted || []), target])] });
+        return { ok: true };
+      case 'unmute':
+        this.publishRoster({ muted: (roster.muted || []).filter((key) => key !== target) });
+        return { ok: true };
+      case 'promote':
+        if ((roster.mods || []).includes(target)) return { ok: false, error: 'Already a moderator.' };
+        this.publishRoster({ mods: [...(roster.mods || []), target] });
+        return { ok: true };
+      default:
+        return { ok: false, error: 'Unknown action.' };
+    }
+  }
+
+  /** Tell a removed member why, then hang up once the notice has flushed. */
+  evict(key, reason) {
+    const id = this.byKey.get(key);
+    if (!id) return;
+    const channel = this.channels.get(id);
+    this.sendTo(id, this.sign('removed', { target: key, reason }));
+    this.byKey.delete(key);
+    this.lastSeen.delete(key);
+    this.admittedAt.delete(key);
+    if (channel) {
+      channel.state = 'denied';
+      channel.closeAt = this.now() + DENY_FLUSH_MS;
+    }
+  }
+
+  onRemoved(frame) {
+    if (frame.from !== this.roster.hostKey || frame.body.target !== this.selfKey) return;
+    const reason = frame.body.reason;
+    const text = {
+      kick: 'A moderator removed you from the room.',
+      ban: 'You were banned from this room.',
+      ended: 'The host ended the room.',
+    }[reason];
+    this.leaveWithNotice(reason === 'ended' ? 'ended' : reason === 'ban' ? 'banned' : 'kicked', text);
+  }
+
+  /** Host only: close the room for everyone. */
+  endRoom() {
+    if (!this.isHost) return { ok: false, error: 'Only the host can end the room.' };
+    this.broadcastRaw(this.sign('room-end', {}));
+    const wasActive = this.status === 'active';
+    this.closeAll();
+    this.reset();
+    this.timer.reset();
+    if (wasActive) this.emit('left');
+    this.emitState();
+    return { ok: true };
+  }
+
+  onRoomEnd(frame) {
+    if (frame.from !== this.roster.hostKey) return;
+    this.leaveWithNotice('ended', 'The host ended the room.');
+  }
+
+  leaveWithNotice(kind, text) {
+    const wasActive = this.status === 'active';
+    this.closeAll();
+    this.reset();
+    this.timer.reset();
+    this.notice = { kind, text };
+    if (wasActive) this.emit('left');
+    this.emitState();
   }
 
   // ------------------------------------------------------------------ leaving
@@ -788,11 +990,19 @@ class RoomService extends EventEmitter {
       status: this.status,
       waitingForHost: this.status === 'joining' && this.joining !== null,
       error: this.error,
+      notice: this.notice,
+      admission: roster ? roster.admission || 'open' : 'open',
+      selfRole: this.selfRole,
       maxPeers: P.MAX_PEERS,
       selfKey: this.selfKey,
       selfName: this.selfName,
       roomId: roster ? roster.roomId : null,
       mnemonic: roster ? this.auth.mnemonic(roster.roomId) : null,
+      relay: {
+        state: this.relayInfo.state,
+        code: this.relayInfo.code ? Code.format(this.relayInfo.code) : null,
+        link: this.relayInfo.code ? Code.buildLink(this.relayInfo.code) : null,
+      },
       isHost: this.isHost,
       hostKey: roster ? roster.hostKey : null,
       members: roster
@@ -801,6 +1011,8 @@ class RoomService extends EventEmitter {
             name: this.nameOf(key),
             isSelf: key === this.selfKey,
             isHost: key === roster.hostKey,
+            role: this.roleOf(key),
+            muted: (roster.muted || []).includes(key),
             connected: connected.has(key),
           }))
         : [],

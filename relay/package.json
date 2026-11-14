@@ -1,0 +1,13 @@
+{
+  "name": "flowcus-relay",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Signaling relay for Flowcus study rooms (Cloudflare Worker + Durable Objects)",
+  "scripts": {
+    "dev": "wrangler dev --local --port 8787",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

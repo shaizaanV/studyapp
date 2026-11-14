@@ -326,7 +326,16 @@
     Flowcus.wallView.init({ send });
     Flowcus.analyticsView.init();
 
-    const roomController = Flowcus.createRoomController({ onView: renderRoom });
+    const roomController = Flowcus.createRoomController({
+      onView: renderRoom,
+      onPhase: (phase) => Flowcus.roomView.setPhase(phase),
+      // A flowcus://join/CODE link: open the room panel with the code filled in.
+      onDeepLink: (code) => {
+        if (panel !== 'room') setPanel('room');
+        if (lastState) render(lastState);
+        Flowcus.roomView.prefillCode(code);
+      },
+    });
     Flowcus.roomView.init({
       controller: roomController,
       container: dom.viewRoom,

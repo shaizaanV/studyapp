@@ -1,9 +1,11 @@
 'use strict';
 
 const path = require('node:path');
-const { app, powerMonitor, safeStorage } = require('electron');
+const { app, ipcMain, powerMonitor, safeStorage } = require('electron');
 
-const { APP_ID, PHASES, MODES } = require('./constants');
+const { APP_ID, PHASES, MODES, RELAY_URL } = require('./constants');
+const P = require('../shared/room-protocol');
+const Code = require('../shared/room-code');
 const store = require('./store');
 const { TimerEngine, MINUTE_MS } = require('./timer-engine');
 const { TimerSource } = require('./timer-source');
@@ -13,6 +15,8 @@ const { createRoomAuth } = require('./room-auth');
 const { createInviteCodec } = require('./room-invite');
 const { createSecretFile } = require('./secret-file');
 const { registerRoomIpc } = require('./room-ipc');
+const { RelayClient } = require('./room-relay');
+const { RoomLink } = require('./room-link');
 const { WindowManager } = require('./window-manager');
 const { registerIpc } = require('./ipc');
 const { createUpdateManager } = require('./update-manager');
@@ -50,6 +54,10 @@ let engine = null;
 let timer = null;
 let room = null;
 let globalStats = null;
+let updates = null;
+let link = null;
+/** A flowcus://join/CODE that arrived before the window could take it. */
+let pendingDeepLink = '';
 const windows = new WindowManager();
 
 const formatMinutes = (ms) => { 
@@ -144,6 +152,15 @@ function setUpRoom() {
   const roomTimer = new RoomTimer({ getSettings: () => settings });
   room = new RoomService({ auth, invites: createInviteCodec({ auth }), timer: roomTimer });
 
+  const relayUrl = (!app.isPackaged && process.env.FLOWCUS_RELAY_URL) || RELAY_URL;
+  const relay = new RelayClient({ url: relayUrl, appVersion: app.getVersion(), protocol: P.PROTOCOL_VERSION, auth });
+  link = new RoomLink({
+    service: room,
+    relay,
+    appVersion: app.getVersion(),
+    onRenderer: (channel, payload) => windows.send(`flowcus:room-${channel}`, payload),
+  });
+
   room.on('joined', () => {
     // A personal session cannot run alongside a room. The invite flow refuses to
     // start while one is running; this catches one begun while waiting to be admitted.
@@ -154,7 +171,14 @@ function setUpRoom() {
 
   registerRoomIpc({
     service: room,
+    link,
+    relay,
     windows,
+    gate: async () => {
+      const result = await link.checkVersion();
+      if (!result.ok) updates.promptUnsupported();
+      return result;
+    },
     turnSecret: createSecretFile({ filePath: path.join(userData, 'flowcus-room-turn.bin'), safeStorage }),
     localIsIdle: () => engine.getState().phase === PHASES.IDLE,
   });
@@ -183,12 +207,27 @@ app.whenReady().then(() => {
     globalStats,
   });
 
+  updates = createUpdateManager({ getParentWindow: () => windows.win });
+
   wireEngine();
   wirePower();
   setUpRoom();
   timer.startTicking();
 
-  createUpdateManager({ getParentWindow: () => windows.win }).start();
+  updates.start();
+  // An out-of-date build is told straight away, not only when it tries a room.
+  link.checkVersion().then((result) => {
+    if (!result.ok) updates.promptUnsupported();
+  });
+
+  ipcMain.handle('flowcus:room-deep-link-take', () => {
+    const code = pendingDeepLink;
+    pendingDeepLink = '';
+    return code;
+  });
+  if (app.isPackaged) app.setAsDefaultProtocolClient('flowcus');
+  const launchLink = process.argv.find((arg) => /^flowcus:\/\//i.test(arg));
+  if (launchLink) handleDeepLink(launchLink);
 
   if (process.env.FLOWCUS_CAPTURE) {
     // Development screenshot harness (npm run smoke). It lives outside src/ so
@@ -197,7 +236,31 @@ app.whenReady().then(() => {
   }
 });
 
-app.on('second-instance', () => windows.focusExisting());
+/**
+ * flowcus://join/CODE pre-fills the join box; it never joins by itself. The
+ * code is validated here so the renderer only ever sees six safe characters.
+ */
+function handleDeepLink(url) {
+  const code = Code.parseLink(url);
+  if (!code) return;
+  pendingDeepLink = code;
+  if (windows.win) {
+    windows.focusExisting();
+    windows.send('flowcus:room-deep-link', { code });
+  }
+}
+
+app.on('second-instance', (_event, argv) => {
+  windows.focusExisting();
+  const url = (argv || []).find((arg) => /^flowcus:\/\//i.test(arg));
+  if (url) handleDeepLink(url);
+});
+
+// macOS delivers links as an event, possibly before the app is ready.
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  handleDeepLink(url);
+});
 
 // Closing the window ends the app, and with it the room: leave() tells the
 // other peers, so they need not wait out the 8 second silence.

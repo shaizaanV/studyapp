@@ -20,7 +20,7 @@ const timerBody = (over = {}) => ({
   phase: 'FOCUS', endsAtEpochMs: 1_000_000, hostSeq: 0, seq: 1, focusMs: 25 * 60000, breakMs: 5 * 60000, ...over,
 });
 
-const frame = (type, body, over = {}) => ({ v: 1, type, from: 'a', seq: 1, ts: 1, sig: 'sig', body, ...over });
+const frame = (type, body, over = {}) => ({ v: P.PROTOCOL_VERSION, type, from: 'a', seq: 1, ts: 1, sig: 'sig', body, ...over });
 
 test('canonicalJson sorts keys at every depth and ignores undefined', () => {
   assert.equal(P.canonicalJson({ b: 1, a: { d: [2, { z: 1, y: 2 }], c: undefined } }), '{"a":{"d":[2,{"y":2,"z":1}]},"b":1}');
@@ -28,7 +28,7 @@ test('canonicalJson sorts keys at every depth and ignores undefined', () => {
 
 test('validateFrame accepts well formed frames and rejects bad envelopes', () => {
   assert.ok(P.validateFrame(frame('chat', { text: 'hi' })).ok);
-  assert.ok(!P.validateFrame(frame('chat', { text: 'hi' }, { v: 2 })).ok);
+  assert.ok(!P.validateFrame(frame('chat', { text: 'hi' }, { v: 1 })).ok);
   assert.ok(!P.validateFrame(frame('nope', {})).ok);
   assert.ok(!P.validateFrame(frame('chat', { text: 'hi' }, { sig: '' })).ok);
   assert.ok(!P.validateFrame(null).ok);
@@ -93,13 +93,53 @@ test('electHost picks the lowest reachable roster member and ignores strangers',
 
 test('a peer claims host only after 8 s of silence and only if it is the candidate', () => {
   const base = { roster: roster(), connectedKeys: ['a', 'c'], lastHostHeardAt: 0 };
-  assert.equal(P.shouldClaimHost({ ...base, selfKey: 'a', now: 7999 }), false);
-  assert.equal(P.shouldClaimHost({ ...base, selfKey: 'a', now: 8000 }), true);
-  assert.equal(P.shouldClaimHost({ ...base, selfKey: 'c', now: 8000 }), false);
+  // Succession follows roster (join) order: 'c' joined before 'a'.
+  assert.equal(P.shouldClaimHost({ ...base, selfKey: 'c', now: 7999 }), false);
+  assert.equal(P.shouldClaimHost({ ...base, selfKey: 'c', now: 8000 }), true);
+  assert.equal(P.shouldClaimHost({ ...base, selfKey: 'a', now: 8000 }), false);
   // The silent host itself is never a candidate, even if it is lowest.
   const hostLowest = { ...base, roster: roster({ hostKey: 'a' }), connectedKeys: ['a', 'b', 'c'] };
   assert.equal(P.shouldClaimHost({ ...hostLowest, selfKey: 'b', now: 8000 }), true);
   assert.equal(P.shouldClaimHost({ ...hostLowest, selfKey: 'a', now: 8000 }), false);
+});
+
+test('electSuccessor prefers moderators in promotion order, then join order, and skips the host', () => {
+  const r = roster({ members: ['h', 'x', 'y', 'z'], hostKey: 'h', mods: ['z', 'y'] });
+  assert.equal(P.electSuccessor(r, ['h', 'x', 'y', 'z']), 'z');
+  assert.equal(P.electSuccessor(r, ['h', 'x', 'y']), 'y');
+  assert.equal(P.electSuccessor(r, ['h', 'x']), 'x');
+  assert.equal(P.electSuccessor({ ...r, mods: [] }, ['h', 'y', 'z']), 'y');
+  assert.equal(P.electSuccessor(r, ['h']), null);
+});
+
+test('moderation roster fields are validated', () => {
+  const base = { members: ['h', 'x', 'y'], hostKey: 'h' };
+  assert.ok(P.validateRoster(roster({ ...base, admission: 'ask', mods: ['x'], muted: ['y'], banned: ['q'] })).ok);
+  assert.ok(!P.validateRoster(roster({ ...base, admission: 'whatever' })).ok);
+  assert.ok(!P.validateRoster(roster({ ...base, mods: ['h'] })).ok, 'host cannot be a mod');
+  assert.ok(!P.validateRoster(roster({ ...base, mods: ['nobody'] })).ok);
+  assert.ok(!P.validateRoster(roster({ ...base, muted: ['nobody'] })).ok);
+  assert.ok(!P.validateRoster(roster({ ...base, banned: ['x'] })).ok, 'a member cannot be banned');
+  assert.ok(!P.validateRoster(roster({ ...base, banned: Array.from({ length: 65 }, (_, i) => `k${i}`) })).ok);
+});
+
+test('mod-action, removed and room-end frames are shape-checked', () => {
+  assert.ok(P.validateFrame(frame('mod-action', { action: 'kick', target: 'x' })).ok);
+  assert.ok(P.validateFrame(frame('mod-action', { action: 'policy', value: 'ask' })).ok);
+  assert.ok(!P.validateFrame(frame('mod-action', { action: 'policy', value: 'nope' })).ok);
+  assert.ok(!P.validateFrame(frame('mod-action', { action: 'explode', target: 'x' })).ok);
+  assert.ok(!P.validateFrame(frame('mod-action', { action: 'kick' })).ok);
+  assert.ok(P.validateFrame(frame('removed', { target: 'x', reason: 'ban' })).ok);
+  assert.ok(!P.validateFrame(frame('removed', { target: 'x', reason: 'because' })).ok);
+  assert.ok(P.validateFrame(frame('room-end', {})).ok);
+  assert.ok(P.validateFrame(frame('join-deny', { joiner: 'x', reason: 'banned' })).ok);
+  assert.ok(!P.validateFrame(frame('join-deny', { joiner: 'x', reason: 'rude' })).ok);
+});
+
+test('canAdmit refuses banned keys', () => {
+  const r = roster({ banned: ['q'] });
+  assert.ok(!P.canAdmit({ roster: r, joinerKey: 'q', requestedAt: 0, now: 0 }).ok);
+  assert.ok(P.canAdmit({ roster: r, joinerKey: 'new', requestedAt: 0, now: 0 }).ok);
 });
 
 test('acceptRoster: the current host may publish the next roster', () => {

@@ -1,8 +1,5 @@
 'use strict';
 
-const { autoUpdater } = require('electron-updater');
-const { dialog } = require('electron');
-
 /** How often to poll for a new release once the app is running. */
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
@@ -12,16 +9,49 @@ const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
  * the public GitHub Releases config baked into app-update.yml at build time
  * (see electron-builder.yml's `publish` key) -- no token, no private-repo
  * auth, nothing that could leak from the shipped binary.
+ *
+ * `requireUpdate()` is the stricter path used when the room relay says this
+ * build is too old: it skips the "later" option, downloads if needed, and
+ * installs as soon as the download lands.
+ *
+ * `updater` and `dialog` are injectable so the flow can be tested without
+ * Electron.
  */
-function createUpdateManager({ getParentWindow = () => null, log = console } = {}) {
-  autoUpdater.logger = log;
-  autoUpdater.autoDownload = true;
+function createUpdateManager({
+  getParentWindow = () => null,
+  log = console,
+  updater = require('electron-updater').autoUpdater,
+  dialog = require('electron').dialog,
+  isPackaged = () => require('electron').app.isPackaged,
+} = {}) {
+  updater.logger = log;
+  updater.autoDownload = true;
 
-  autoUpdater.on('error', (err) => {
+  let downloaded = false;
+  let installWhenReady = false;
+  let intervalHandle = null;
+
+  updater.on('error', (err) => {
     log.error?.('[update-manager] error', err);
+    if (installWhenReady) {
+      installWhenReady = false;
+      dialog.showMessageBox(getParentWindow(), {
+        type: 'warning',
+        title: 'Update failed',
+        message: 'Flowcus could not download the update.',
+        detail: 'Check your connection and relaunch the app to try again, or download the latest installer from the releases page.',
+        buttons: ['OK'],
+        noLink: true,
+      });
+    }
   });
 
-  autoUpdater.on('update-downloaded', (info) => {
+  updater.on('update-downloaded', (info) => {
+    downloaded = true;
+    if (installWhenReady) {
+      updater.quitAndInstall(false, true);
+      return;
+    }
     dialog
       .showMessageBox(getParentWindow(), {
         type: 'info',
@@ -34,14 +64,25 @@ function createUpdateManager({ getParentWindow = () => null, log = console } = {
         noLink: true,
       })
       .then(({ response }) => {
-        if (response === 0) autoUpdater.quitAndInstall();
+        if (response === 0) updater.quitAndInstall();
       });
   });
 
-  let intervalHandle = null;
+  updater.on('update-not-available', () => {
+    if (!installWhenReady) return;
+    installWhenReady = false;
+    dialog.showMessageBox(getParentWindow(), {
+      type: 'info',
+      title: 'No update found',
+      message: 'No newer build is published yet.',
+      detail: 'Study rooms need a newer version than the one you have. Try again in a little while.',
+      buttons: ['OK'],
+      noLink: true,
+    });
+  });
 
   function checkNow() {
-    autoUpdater.checkForUpdates().catch((err) => log.error?.('[update-manager] checkForUpdates failed', err));
+    return updater.checkForUpdates().catch((err) => log.error?.('[update-manager] checkForUpdates failed', err));
   }
 
   function start() {
@@ -57,7 +98,46 @@ function createUpdateManager({ getParentWindow = () => null, log = console } = {
     intervalHandle = null;
   }
 
-  return { start, stop };
+  /**
+   * Installs the newest build with no "later" option. Resolves to
+   * 'installing' (already downloaded), 'checking' (will install when the
+   * download lands) or 'unsupported' (a development run cannot self-update).
+   */
+  async function requireUpdate() {
+    if (!isPackaged()) return 'unsupported';
+    if (downloaded) {
+      updater.quitAndInstall(false, true);
+      return 'installing';
+    }
+    installWhenReady = true;
+    await checkNow();
+    return 'checking';
+  }
+
+  let prompting = false;
+
+  /** The blocking "your version is not supported" dialog. One at a time. */
+  async function promptUnsupported() {
+    if (prompting) return;
+    prompting = true;
+    try {
+      const { response } = await dialog.showMessageBox(getParentWindow(), {
+        type: 'warning',
+        title: 'Update required',
+        message: 'Your version is not supported.',
+        detail: 'Study rooms need the latest version of Flowcus. Relaunch to update.',
+        buttons: ['Relaunch to Update', 'Not Now'],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true,
+      });
+      if (response === 0) await requireUpdate();
+    } finally {
+      prompting = false;
+    }
+  }
+
+  return { start, stop, requireUpdate, promptUnsupported };
 }
 
-module.exports = { createUpdateManager };
+module.exports = { createUpdateManager, CHECK_INTERVAL_MS };

@@ -21,7 +21,11 @@ const KINDS = ['invite', 'reply'];
  * reply comes from the admitting member and carries the room id.
  */
 function createInviteCodec({ auth, now = Date.now }) {
-  function encode({ kind, roomId, name, sdp }) {
+  /**
+   * A reply also names who it answers (`to`) and the hash of the offer it
+   * answers (`offerHash`), so it cannot be replayed to a different joiner.
+   */
+  function encode({ kind, roomId, name, sdp, to, offerHash, ttlMs = P.INVITE_TTL_MS }) {
     const signed = auth.signObject({
       v: P.PROTOCOL_VERSION,
       kind,
@@ -29,7 +33,9 @@ function createInviteCodec({ auth, now = Date.now }) {
       pubKey: auth.publicKey,
       name,
       sdp,
-      exp: now() + P.INVITE_TTL_MS,
+      to: to || '',
+      offerHash: offerHash || '',
+      exp: now() + ttlMs,
     });
     return PREFIX + zlib.deflateRawSync(Buffer.from(JSON.stringify(signed))).toString('base64url');
   }
@@ -50,9 +56,15 @@ function createInviteCodec({ auth, now = Date.now }) {
       return { ok: false, error: 'That invite is damaged. Copy it again.' };
     }
 
+    if (invite && typeof invite === 'object' && Number.isInteger(invite.v) && invite.v !== P.PROTOCOL_VERSION) {
+      return { ok: false, error: 'That invite is from a different version of Flowcus. Update the app and try again.' };
+    }
+
     const wellFormed =
       invite && typeof invite === 'object' &&
       invite.v === P.PROTOCOL_VERSION &&
+      typeof invite.to === 'string' && invite.to.length <= 256 &&
+      typeof invite.offerHash === 'string' && invite.offerHash.length <= 64 &&
       KINDS.includes(invite.kind) &&
       typeof invite.roomId === 'string' && invite.roomId.length <= 64 &&
       typeof invite.pubKey === 'string' && invite.pubKey.length > 0 && invite.pubKey.length <= 256 &&
@@ -72,4 +84,7 @@ function createInviteCodec({ auth, now = Date.now }) {
   return { encode, decode };
 }
 
-module.exports = { createInviteCodec, PREFIX };
+/** SHA-256 hex of an SDP, the value a reply's `offerHash` must match. */
+const hashSdp = (sdp) => require('node:crypto').createHash('sha256').update(String(sdp)).digest('hex');
+
+module.exports = { createInviteCodec, PREFIX, hashSdp };

@@ -17,6 +17,12 @@ files:
   - package.json
   - src/**/*
 
+# flowcus://join/CODE opens the app on the room panel with the code filled in.
+protocols:
+  - name: Flowcus Room
+    schemes:
+      - flowcus
+
 asar: true
 compression: maximum
 

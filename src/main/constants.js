@@ -14,7 +14,7 @@ const APP_ID = 'com.flowcus.app';
  * work and everyone joins through Advanced (manual invites). Only an unpackaged
  * dev run may override it, with FLOWCUS_RELAY_URL.
  */
-const RELAY_URL = '';
+const RELAY_URL = 'wss://flowcus-relay.shaizaanv.workers.dev';
 
 /** Authoritative clock resolution, in the main process. */
 const TICK_MS = 250;

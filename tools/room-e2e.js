@@ -119,7 +119,10 @@ const log = (message) => console.log(`[e2e] ${++step}. ${message}`);
 
 async function main() {
   fs.mkdirSync(outputDir, { recursive: true });
-  const relay = await startLocalRelay({ port: 0 });
+  // E2E_RELAY_URL points the run at a deployed relay instead of the local one.
+  const relay = process.env.E2E_RELAY_URL
+    ? { url: process.env.E2E_RELAY_URL, close: () => {} }
+    : await startLocalRelay({ port: 0 });
   relayUrl = relay.url;
   const children = [start('a'), start('b')];
   const cleanup = () => {

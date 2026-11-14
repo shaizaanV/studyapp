@@ -57,7 +57,7 @@ function createInviteCodec({ auth, now = Date.now }) {
     }
 
     if (invite && typeof invite === 'object' && Number.isInteger(invite.v) && invite.v !== P.PROTOCOL_VERSION) {
-      return { ok: false, error: 'That invite is from a different version of Flowcus. Update the app and try again.' };
+      return { ok: false, error: 'That invite is from a different version of Focuvibe. Update the app and try again.' };
     }
 
     const wellFormed =

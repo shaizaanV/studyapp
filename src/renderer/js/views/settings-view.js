@@ -166,7 +166,7 @@
 
   function setAbout(info) {
     dom.about.replaceChildren(
-      el('div', { text: 'Flowcus ' + info.version }),
+      el('div', { text: 'Focuvibe ' + info.version }),
       el('div', {
         text: info.packaged
           ? 'Break-end alarm: looping tone, alarm toast, taskbar flash and window focus.'

@@ -1,4 +1,4 @@
-# Flowcus room relay
+# Focuvibe room relay
 
 A Cloudflare Worker with two Durable Objects (SQLite-backed, WebSocket Hibernation) that lets a joiner find a study room from a 6-character code. It carries only the signed handshake blobs (an invite and a reply) between a joiner and a member. Timer and chat traffic never touch it: rooms stay peer-to-peer WebRTC.
 

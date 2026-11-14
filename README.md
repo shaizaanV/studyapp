@@ -1,4 +1,4 @@
-# Flowcus
+# Focuvibe
 
 A dark-mode focus timer for Windows, Linux and macOS, built on Electron. Two
 timing modes (a fixed Pomodoro and a piecewise-tiered Flow mode), an optional
@@ -82,7 +82,7 @@ Coverage includes the timer engine, the Flowcus tier algorithm, the room
 protocol's admission and split-brain rules, room auth, room clock sync, and
 the analytics rollup, moderation and succession, the relay core (against an
 in-memory fake) and the QR encoder. A separate multi-instance, headless
-end-to-end check (`npm run room:e2e`) drives two real Flowcus processes over
+end-to-end check (`npm run room:e2e`) drives two real Focuvibe processes over
 the Chrome DevTools Protocol, with a local relay (`tools/local-relay.js`),
 through a full room lifecycle — join by code, timer sync, two-way chat, code
 rotation, kick and rejoin, and host handover after the original host's window

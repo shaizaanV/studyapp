@@ -1,0 +1,174 @@
+/*
+ * Startup animation: the timer arc draws itself around a pulsing dot, the
+ * name rises in letter by letter, a line sweeps underneath, then the whole
+ * overlay dissolves to reveal the app. About 2 seconds end to end.
+ * Everything is classes and keyframes: the page's CSP forbids inline styles.
+ */
+
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--bg);
+}
+
+.splash.play {
+  animation: splash-out 0.55s var(--ease) 1.75s forwards;
+}
+
+/* A soft lime bloom behind the mark that swells as the arc closes. */
+.splash-glow {
+  position: absolute;
+  width: 320px;
+  height: 320px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(198, 255, 61, 0.22) 0%, rgba(198, 255, 61, 0) 65%);
+  opacity: 0;
+  transform: scale(0.5);
+}
+
+.splash.play .splash-glow {
+  animation: splash-glow 1.7s var(--ease) 0.1s forwards;
+}
+
+.splash-mark {
+  position: relative;
+  width: 112px;
+  height: 112px;
+  overflow: visible;
+  transform: rotate(-90deg);
+}
+
+.splash-track,
+.splash-arc {
+  fill: none;
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+
+.splash-track {
+  stroke: var(--border-strong);
+  opacity: 0;
+}
+
+.splash.play .splash-track {
+  animation: splash-fade-in 0.4s var(--ease) 0.05s forwards;
+}
+
+.splash-arc {
+  stroke: var(--lime);
+  stroke-dasharray: 78 100;
+  stroke-dashoffset: 78;
+  filter: drop-shadow(0 0 6px rgba(198, 255, 61, 0.55));
+}
+
+.splash.play .splash-arc {
+  animation: splash-draw 1.05s var(--ease) 0.15s forwards;
+}
+
+/* The dot sits at twelve o'clock and rides the arc as it draws. */
+.splash-dot {
+  fill: var(--lime);
+  transform-origin: 50px 50px;
+  opacity: 0;
+  filter: drop-shadow(0 0 8px rgba(198, 255, 61, 0.9));
+}
+
+.splash.play .splash-dot {
+  animation: splash-ride 1.05s var(--ease) 0.15s forwards, splash-pulse 0.9s ease-in-out 1.2s 1;
+}
+
+.splash-word {
+  display: flex;
+  gap: 0.18em;
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--text);
+}
+
+.splash-word span {
+  display: inline-block;
+  opacity: 0;
+  transform: translateY(14px);
+}
+
+.splash.play .splash-word span {
+  animation: splash-rise 0.5s var(--ease-snap) forwards;
+}
+
+.splash-word span:nth-child(1) { animation-delay: 0.55s; }
+.splash-word span:nth-child(2) { animation-delay: 0.61s; }
+.splash-word span:nth-child(3) { animation-delay: 0.67s; }
+.splash-word span:nth-child(4) { animation-delay: 0.73s; }
+.splash-word span:nth-child(5) { animation-delay: 0.79s; }
+.splash-word span:nth-child(6) { animation-delay: 0.85s; }
+.splash-word span:nth-child(7) { animation-delay: 0.91s; }
+.splash-word span:nth-child(8) { animation-delay: 0.97s; }
+
+.splash-line {
+  width: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, rgba(198, 255, 61, 0), var(--lime), rgba(198, 255, 61, 0));
+}
+
+.splash.play .splash-line {
+  animation: splash-sweep 0.8s var(--ease) 1.0s forwards;
+}
+
+@keyframes splash-fade-in {
+  to { opacity: 1; }
+}
+
+@keyframes splash-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+/* 78% of the ring is 280 degrees: the dot ends where the arc ends. */
+@keyframes splash-ride {
+  0%   { opacity: 0; transform: rotate(0deg); }
+  15%  { opacity: 1; }
+  100% { opacity: 1; transform: rotate(280deg); }
+}
+
+@keyframes splash-pulse {
+  0%, 100% { r: 4.2px; }
+  50%      { r: 6.4px; }
+}
+
+@keyframes splash-rise {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes splash-sweep {
+  to { width: 190px; }
+}
+
+@keyframes splash-glow {
+  0%   { opacity: 0; transform: scale(0.5); }
+  60%  { opacity: 1; transform: scale(1.05); }
+  100% { opacity: 0.55; transform: scale(1.2); }
+}
+
+@keyframes splash-out {
+  to { opacity: 0; transform: scale(1.04); visibility: hidden; }
+}
+
+body.mini .splash {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash {
+    display: none;
+  }
+}

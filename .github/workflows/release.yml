@@ -77,7 +77,7 @@ jobs:
         run: |
           tag="v${{ steps.ver.outputs.version }}"
           gh release create "$tag" --title "$tag" --target "$GITHUB_SHA" --generate-notes
-          gh release upload "$tag" "dist/Flowcus-Setup-${{ steps.ver.outputs.version }}-x64.exe" "dist/Flowcus-Setup-${{ steps.ver.outputs.version }}-x64.exe.blockmap"
+          gh release upload "$tag" "dist/Focuvibe-Setup-${{ steps.ver.outputs.version }}-x64.exe" "dist/Focuvibe-Setup-${{ steps.ver.outputs.version }}-x64.exe.blockmap"
           gh release upload "$tag" dist/latest.yml
 
   # Microsoft Store package. A separate job so it can also be run on demand
@@ -138,7 +138,7 @@ jobs:
         run: |
           tag="v${{ steps.ver.outputs.version }}"
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" "dist-store/Flowcus-Store-${{ steps.ver.outputs.version }}-x64.appx" --clobber
+            gh release upload "$tag" "dist-store/Focuvibe-Store-${{ steps.ver.outputs.version }}-x64.appx" --clobber
           else
             echo "No release $tag to attach to; the artifact above has the package."
           fi

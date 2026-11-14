@@ -16,11 +16,11 @@ function describeError(error) {
     case 'banned': return 'You are banned from this room.';
     case 'full': return 'That room is full.';
     case 'closed': return 'That room has closed.';
-    case 'unsupported': return 'Your version of Flowcus is not supported. Please relaunch to update.';
+    case 'unsupported': return 'Your version of Focuvibe is not supported. Please relaunch to update.';
     case 'busy': return 'Nobody in the room could take your request. Try again in a moment.';
     case 'disabled': return 'Joining by code is switched off right now. Use Advanced to join with an invite.';
     case 'timeout': return 'That took too long. Try again.';
-    case 'unreachable': return 'Could not reach the Flowcus relay. Use Advanced to join with an invite.';
+    case 'unreachable': return 'Could not reach the Focuvibe relay. Use Advanced to join with an invite.';
     default: return 'Something went wrong with the relay. Try again.';
   }
 }

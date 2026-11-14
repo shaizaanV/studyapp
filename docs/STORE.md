@@ -1,11 +1,11 @@
-# Publishing Flowcus on the Microsoft Store
+# Publishing Focuvibe on the Microsoft Store
 
 The Store build is an `.appx` made by the same GitHub Actions workflow as the NSIS installer, from the same `package.json` version. Microsoft re-signs it, so it never triggers SmartScreen or Smart App Control. GitHub users update through `electron-updater`; Store users update through the Store (the Store build never loads `electron-updater`).
 
 ## One-time setup (you)
 
 1. **Register** at https://storedeveloper.microsoft.com as an **individual**. It is free for individuals. You need a government ID and a selfie; approval can take from minutes to a few days.
-2. In **Partner Center**, go to Apps and games → New product → **MSIX or PWA app**, and **reserve the name** "Flowcus" (if it is taken, pick a variant such as "Flowcus Focus Timer"; the name you reserve is what shows in the Store).
+2. In **Partner Center**, go to Apps and games → New product → **MSIX or PWA app**, and **reserve the name** "Focuvibe" (if it is taken, pick a variant such as "Focuvibe Focus Timer"; the name you reserve is what shows in the Store).
 3. Open the app → **Product management → Product identity** and copy three values:
 
    | Partner Center field | GitHub variable |
@@ -19,7 +19,7 @@ The Store build is an `.appx` made by the same GitHub Actions workflow as the NS
 
 ## Each release
 
-1. Bump `package.json` `version` and push to `main`. The workflow publishes the GitHub release (NSIS) and, once the three variables exist, also builds `Flowcus-Store-<version>-x64.appx` and attaches it to that release (and saves it as the `flowcus-store-package` build artifact).
+1. Bump `package.json` `version` and push to `main`. The workflow publishes the GitHub release (NSIS) and, once the three variables exist, also builds `Focuvibe-Store-<version>-x64.appx` and attaches it to that release (and saves it as the `flowcus-store-package` build artifact).
    The first time, or to rebuild the Store package for an existing version: Actions → Release → **Run workflow**.
 2. Download the `.appx` and in Partner Center: the app → **Start your submission → Packages** → upload it.
 3. Fill in the submission the first time (below), then **Submit to the Store**. Certification takes up to about 3 business days; it goes live a few minutes after it passes.
@@ -33,12 +33,12 @@ The Store requires version `X.Y.Z.0`; the build produces that automatically from
 - **Age rating questionnaire:** no violence, no sexual content, no gambling, no user-generated content moderation by you beyond room tools; the app has **online chat between users** (study rooms), so answer the "users can interact" question truthfully. Expect a 3+/everyone-style rating with an online-interaction notice.
 - **Properties:** Privacy policy URL from step 4 above. Support contact: https://github.com/shaizaanV/studyapp/issues.
 - **Restricted capability (`runFullTrust`) justification:**
-  > Flowcus is an Electron desktop application. It needs the full-trust process model to run its Chromium and Node runtime, WebRTC peer-to-peer connections for study rooms, and Windows toast notifications. It does not access user files outside its own data folder.
+  > Focuvibe is an Electron desktop application. It needs the full-trust process model to run its Chromium and Node runtime, WebRTC peer-to-peer connections for study rooms, and Windows toast notifications. It does not access user files outside its own data folder.
 - **Notes for certification:** "No account is needed. To test study rooms you need two PCs: create a room on one, type its 6-character code on the other."
 
 ### Listing text (paste into Description)
 
-> **Flowcus** is a focus timer built to make you actually start and keep going.
+> **Focuvibe** is a focus timer built to make you actually start and keep going.
 >
 > • **Two timing modes** — a classic fixed Pomodoro, and a Flow mode whose breaks grow with how long you focused.
 > • **Wall Method** — an optional ten-minute pre-focus baseline to settle in before the clock starts.
@@ -52,15 +52,15 @@ The Store requires version `X.Y.Z.0`; the build produces that automatically from
 
 ## Test the package before submitting
 
-An unsigned `.appx` will not install by default. To try it on your own PC, either enable Developer Mode (Settings → System → For developers) and run `Add-AppxPackage -Path .\Flowcus-Store-<version>-x64.appx`, or sign it with a throwaway self-signed certificate whose subject equals `STORE_PUBLISHER` and trust it. Check:
+An unsigned `.appx` will not install by default. To try it on your own PC, either enable Developer Mode (Settings → System → For developers) and run `Add-AppxPackage -Path .\Focuvibe-Store-<version>-x64.appx`, or sign it with a throwaway self-signed certificate whose subject equals `STORE_PUBLISHER` and trust it. Check:
 
 - the app launches, the timer runs and a break notification appears,
-- `flowcus://join/ABC123` (from the Run dialog) opens Flowcus on the room panel with the code filled in,
+- `flowcus://join/ABC123` (from the Run dialog) opens Focuvibe on the room panel with the code filled in,
 - a room can be created and joined by code,
 - no update prompt appears and nothing contacts GitHub for updates,
 - run the Windows App Certification Kit on the package (it is in the Windows SDK) and fix anything it flags before submitting.
 
-Remove the test install with `Get-AppxPackage *Flowcus* | Remove-AppxPackage`.
+Remove the test install with `Get-AppxPackage *Focuvibe* | Remove-AppxPackage`.
 
 ## How the two channels differ
 

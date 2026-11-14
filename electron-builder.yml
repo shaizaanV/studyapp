@@ -1,11 +1,11 @@
-# electron-builder configuration for Flowcus.
+# electron-builder configuration for Focuvibe.
 #
 # appId MUST stay identical to APP_ID in src/main/constants.js. Windows pairs
 # toast notifications with the AppUserModelID stamped onto the Start Menu
 # shortcut that NSIS creates below; if the two drift apart every toast is
 # dropped silently.
 appId: com.flowcus.app
-productName: Flowcus
+productName: Focuvibe
 copyright: Copyright (c) 2026
 
 directories:
@@ -19,7 +19,7 @@ files:
 
 # flowcus://join/CODE opens the app on the room panel with the code filled in.
 protocols:
-  - name: Flowcus Room
+  - name: Focuvibe Room
     schemes:
       - flowcus
 
@@ -40,8 +40,8 @@ win:
 # here: the build passes them as -c.appx.* flags (see the release workflow and
 # docs/STORE.md), so a package with placeholder values is never built by accident.
 appx:
-  applicationId: Flowcus
-  displayName: Flowcus
+  applicationId: Focuvibe
+  displayName: Focuvibe
   languages:
     - en-US
   backgroundColor: "#111418"
@@ -76,7 +76,7 @@ nsis:
   # it, notifications from the installed app never appear.
   createStartMenuShortcut: true
   createDesktopShortcut: true
-  shortcutName: Flowcus
+  shortcutName: Focuvibe
   # Settings and session history live in userData; keep them across upgrades.
   deleteAppDataOnUninstall: false
   runAfterFinish: true

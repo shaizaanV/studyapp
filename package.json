@@ -1,9 +1,9 @@
 {
   "name": "flowcus",
-  "version": "5.0.3",
-  "description": "Premium dark-mode dual-timer focus app with the Wall Method, the Flowcus 3.0 tier engine and a native analytics dashboard",
+  "version": "5.0.4",
+  "description": "Premium dark-mode dual-timer focus app with the Wall Method, the Focuvibe tier engine and a native analytics dashboard",
   "main": "src/main/main.js",
-  "author": "Flowcus",
+  "author": "Focuvibe",
   "private": false,
   "license": "MIT",
   "scripts": {
